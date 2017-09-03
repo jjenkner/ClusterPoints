@@ -1,0 +1,19 @@
+[general]
+name=ClusterPoints
+
+version=1.5
+qgisMinimumVersion=2.4
+
+description: <br>Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. 
+
+about=<br><br><br>Sometimes it is requisite to determine distinct groups of points on a map which are closest to each other. To automatize this process, Cluster Points allows you to find a predefined number of groups with mutually close points. <br><br>The cluster algorithms are well-known, but until now there has not been an implementation for a GIS system, yet.<br><br> This plugin was started during the project phase of a GIS-Analyst training course in Berlin (Geo-sys).
+
+author=Johannes J.
+email=jjenkner@web.de 
+experimental=False
+
+repository=https://github.com/jjenkner/ClusterPoints
+tracker=https://github.com/jjenkner/ClusterPoints/issues
+
+icon=icons/cluster.png
+
