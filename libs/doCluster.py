@@ -41,10 +41,16 @@ class Dialog(QDialog, Ui_Dialog):
         self.cmbLinkage.clear()
         self.cmbLinkage.blockSignals(False)
         if self.cmbClustertype.currentIndex()<>0:
+            self.spnSeed.setMaximum(0)
+            self.spnSeed.clear()
             self.cmbLinkage.addItem(self.tr("Ward's"))
             self.cmbLinkage.addItem(self.tr("Single"))
             self.cmbLinkage.addItem(self.tr("Complete"))
             self.cmbLinkage.addItem(self.tr("Average"))
+        else:
+            self.spnSeed.setMinimum(1)
+            self.spnSeed.setMaximum(999)
+            self.spnSeed.setValue(1)
 
     def accept(self):
         self.buttonOk.setEnabled(False)
@@ -219,6 +225,8 @@ class Dialog(QDialog, Ui_Dialog):
         layer.setRendererV2(renderer)
 	  
     def kmeans(self, points, k, d, cutoff=10*float_info.epsilon, manhattan=False):
+
+        random.seed(self.spnSeed.value()) 
 
         # Pick out k random points to use as our initial centroids
         initial = random.sample(points.keys(), k)
