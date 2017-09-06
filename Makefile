@@ -3,6 +3,7 @@
 PLUGINNAME = ClusterPoints
 EXTRAS = metadata.txt README.html
 DIRECTORIES = forms icons libs README-Dateien
+SCRIPTDIR = scripts
 
 SOURCES	:= $(shell find $(DIRECTORIES) -name *.ui)
 COMPILE	:= $(SOURCES:%.ui=%.py)
@@ -17,3 +18,4 @@ all:
 
 	$(foreach dir,$(DIRECTORIES),rsync -rupE $(dir) $(HOME)/.qgis2/python/plugins/$(PLUGINNAME)/;)
 
+	test -d $(SCRIPTDIR) && rsync -rupE $(SCRIPTDIR)/* $(HOME)/.qgis2/processing/scripts
