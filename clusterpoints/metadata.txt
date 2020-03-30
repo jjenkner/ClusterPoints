@@ -1,7 +1,7 @@
 [general]
 name=ClusterPoints
 
-version=1.5
+version=2.2
 qgisMinimumVersion=2.4
 
 description: <br>Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. 

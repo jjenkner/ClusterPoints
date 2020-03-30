@@ -1,96 +1,54 @@
 # -*- coding: utf-8 -*-
 """
 /***************************************************************************
- CP_menu
-				 A QGIS plugin
- ClusterPoints plugin version for QGIS
-			      -------------------
-	begin		     : 2015-12-01
-	copyright	     : (C) 2016 by Johannes Jenkner
-	email		     : jjenkner@web.de
+ ClusterPoints
+                                 A QGIS plugin
+ Cluster geographical points into a predefined number of groups.
+                              -------------------
+        begin                : 2015-12-01
+        git sha              : $Format:%H$
+        copyright            : (C) 2017 by Johannes Jenkner
+        email                : jjenkner@web.de
  ***************************************************************************/
 
 /***************************************************************************
- *									   *
+ *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or	   *
- *   (at your option) any later version.				   *
- *									   *
+ *   the Free Software Foundation; either version 2 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
  ***************************************************************************/
 """
 
-from PyQt4.QtCore import *
-from PyQt4.QtGui import *
-from qgis.core import *
-import os.path
+__author__ = 'Johannes Jenkner'
+__date__ = '2017-09-01'
+__copyright__ = '(C) 2017 by Johannes Jenkner'
+
+# This will get replaced with a git SHA1 when you do a git archive
+
+__revision__ = '$Format:%H$'
+
+import os
 import sys
-import webbrowser
+import inspect
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/libs")
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/forms")
+from processing.core.Processing import Processing
+from CP_provider import CP_provider
 
-import doCluster
-import doCenter
+cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
 
-class cp_menu:
-    CLP_MENU = u"&Cluster Points"
+if cmd_folder not in sys.path:
+    sys.path.insert(0, cmd_folder)
 
-    def __init__(self, iface):
-        self.iface = iface
-        self.plugin_dir = os.path.dirname(__file__)
+
+class CP_menu:
+
+    def __init__(self):
+        self.provider = CP_provider()
 
     def initGui(self):
-        cluster_icon = QIcon(os.path.dirname(__file__)+"/icons/cluster.png")
-        center_icon = QIcon(os.path.dirname(__file__)+"/icons/center_gravity.png")
-        about_icon = QIcon(os.path.dirname(__file__)+"/icons/about.png")
-	help_icon = QIcon(os.path.dirname(__file__)+"/icons/help.png")
-
-        self.clusteraction = QAction(cluster_icon, u"Clustering",self.iface.mainWindow())
-        self.clusteraction.triggered.connect(self.doCluster)
-
-        self.centeraction = QAction(center_icon, u"Cluster Centers",self.iface.mainWindow())
-        self.centeraction.triggered.connect(self.doCenter)
-
-        self.aboutaction = QAction(about_icon, u"About",self.iface.mainWindow())
-        self.aboutaction.triggered.connect(self.doAbout)
-
-	self.helpaction = QAction(help_icon, u"Help",self.iface.mainWindow())
-	self.helpaction.triggered.connect(self.doHelp)
-
-        self.iface.addPluginToMenu(self.CLP_MENU, self.clusteraction)
-        self.iface.addPluginToMenu(self.CLP_MENU, self.centeraction)
-        self.iface.addPluginToMenu(self.CLP_MENU, self.aboutaction)
-	self.iface.addPluginToMenu(self.CLP_MENU, self.helpaction)
+        Processing.addProvider(self.provider)
 
     def unload(self):
-        self.iface.removePluginMenu(self.CLP_MENU, self.clusteraction)
-        self.iface.removePluginMenu(self.CLP_MENU, self.centeraction)
-        self.iface.removePluginMenu(self.CLP_MENU, self.aboutaction)
-	self.iface.removePluginMenu(self.CLP_MENU, self.helpaction)
-
-    def doCluster(self):
-        dialog = doCluster.Dialog(self.iface)
-        dialog.exec_()
-
-    def doCenter(self):
-        dialog = doCenter.Dialog(self.iface)
-        dialog.exec_()
-	
-    def doAbout(self):
-        dialog = CP_About_Dialog(self.iface)
-        dialog.exec_()
-
-    def doHelp(self):
-        webbrowser.open("file://" + os.path.dirname(__file__) + "/README.html")
-
-
-#----------------------- About------------------------------------------
-from ui_frmAbout import *
-
-class CP_About_Dialog(QDialog, Ui_CP_About_form):
-    def __init__(self, iface):
-        QDialog.__init__(self)
-        self.iface = iface
-        self.setupUi(self)
-
+        Processing.removeProvider(self.provider)

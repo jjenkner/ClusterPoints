@@ -17,8 +17,7 @@ h3 {
 h4{
 	text-decoration: underline;
 }
-ul.c {list-style-type: square;}
-ol.u {list-style-type: none;}
+li{margin: 10px 0;}
 <title>Cluster Points</title>
 <meta name="keywords" content="Qgis, Quantum GIS, plugin, python"/>
 <meta name="description" content="A set of clustering tools for QGIS"/>
@@ -28,15 +27,14 @@ ol.u {list-style-type: none;}
 
 
 <body>
-<div style="width: 800px; 
+<div style="width: 850px; 
   margin: auto;
   text-align: left">
 <br><br><br>
 <h1>Cluster Points</h1>
 <br>
-<p>December 1<sup>st</sup> 2016</p>
 
-<p><em>This website describes the functions of the plugin and their use within QGIS.</em></p>
+<p><em>This website describes the subplugin of the <strong>Processing Toolbox</strong> and its functionality.</em></p>
 
 <h3>Introduction</h3>
 
@@ -51,7 +49,7 @@ and gradually merges individual clusters according to a certain link function.
 </p>
  
 <p>
-Cluster Points works with input and output shapefiles.
+Cluster Points works with input shapefiles with a new field <em>Cluster_ID</em> appended to the attribute table as output.
 </p>
 
 <p>
@@ -62,49 +60,44 @@ Bug reports or suggestions are welcome at the e-mail address above.
 </p>
 
 <p>
-Note that some code segments have been taken from the built-in ftools and the MMQGIS plugin. This plugin was started during the project phase of a GIS-Analyst training course in Berlin (Geo-sys). 
-I acknowledge the assistance of the Geo-sys tutors and my classmates Juliane, Bennet and Sebastian. 
+Note that some code segments have been taken from the built-in ftools and the MMQGIS plugin. This plugin was started during the project phase of a GIS-Analyst training course in Berlin (<a href="http://www.gis-trainer.de">GIS-Trainer</a>). 
+I acknowledge the assistance of the <a href="http://www.gis-trainer.de">GIS-Trainer</a> tutors and my classmates Juliane, Bennet and Sebastian. 
 </p>
 
 <br><br><br>
 
 <h3>User Manual</h3>
 
-<p>
-The <em>Cluster Points Menu</em> can be opened in the QGIS plugin drop-down menu.
-</p>
-
-<img src="README-Dateien/MainMenu_ClusterPoints.png" border="1">
-
-<p>
-There are two different tools: <em>Clustering</em> and <em>Cluster Centers</em> which may be used in that order.
-</p>
-
-<ol>
-<li>
 <h4><a name="Clustering"/>Clustering</h4>
 <p>
 The <em>Clustering Tool</em> offers spatial clustering of a point layer based on the mutual distances between points.
 Basically, the inter-class distances are maximized whereas the intra-class distances are minimized.
 The user always needs to define the number of clusters which is sought (minimum is 2). Also, the user needs to decide
-between the Euclidean distance and the Manhattan distance within the cluster computation. 
+between the Euclidean distance and the Manhattan distance within the cluster computation.
+Since the K-means algorithm is based on a random initialization, a random seed can be specified for this type of clustering to guarantee stable results. 
+For hierachical clustering a linkage, i.e. link function, must be specified which determines where the distances are measured between individual clusters.  
 </p>
-<img src="README-Dateien/Cluster_Use.png" border="1">
+<center>
+<img width=600 src="README-Sources/Cluster_Use.png" border="1">
+</center>
+
 <p>
 Two inherently different clustering types are available:
 </p>
 <ul>
-<li><h5>K-means Clustering</h5>
-<p> K-means is an iterative algorithm which is randomly initialized. Here, the <a href="https://en.wikipedia.org/wiki/K-means_clustering#Standard_algorithm">version of Lloyd</a> is implemented which consists of three steps. 
+<li>
+<strong>K-means Clustering</strong><br>
+K-means is an iterative algorithm which is randomly initialized. Here, the 
+<a href="https://en.wikipedia.org/wiki/K-means_clustering#Standard_algorithm">version of Lloyd</a> is implemented which consists of three steps. 
 First, a user-defined number of clusters is initialized by randomly choosing points in the input layer as their centers.
 Then the iteration starts with alternating assignment and updating steps. During the assignment, the points are assigned to the closest
 cluster centers. During the updating, the cluster centers are recalculated from the members which were assigned to a certain cluster.
 The algorithm stops, as soon the cluster centers do not move any more. Note that the K-means algorithm is comparatively fast, 
 but it slightly depends on its random initialization and hence does not always produce the same results. 
-</p>      
+To this end, a predefined random seed is used, to guarantee the results to be the same for the same seed.
 </li>
-<li><h5>Hierarchical Clustering</h5>
-<p>
+<li>
+<strong>Hierarchical Clustering</strong><br>
 The clustering here is agglomerative, i.e. it starts with as many clusters as there are points and gradually merges the 
 two closest clusters to a composite cluster. The user needs to choose a link function which describes the way 
 how the two closest clusters are found. He may choose from Ward's Linkage as well as Single, Complete and Average Linkage.
@@ -112,32 +105,13 @@ The definitions of the individual link functions can be found online. By gradual
 the so-called cluster tree is built which shows when individual clusters were merged exactly. 
 Each time two clusters are merged, the distances of 
 the new composite cluster to all the other clusters need to be updated. To do this as efficient as possible,
-the <a href="https://en.wikipedia.org/wiki/Ward's_method#Lance.E2.80.93Williams_algorithms">Lance-Williams method</a> is used here which quickly updates the underlying distance matrix. Note that the Lance-Williams
-method is unequivocal, but it is still computationally expensive, if the number of points is high. 
-</p>
+the <a href="https://en.wikipedia.org/wiki/Ward's_method#Lance.E2.80.93Williams_algorithms">Lance-Williams method</a>
+is used here which quickly updates the underlying distance matrix. Note that the Lance-Williams
+method is unequivocal, but it is still computationally expensive, if the number of points is high.
 </li>
 </ul>
 
-<p> The output always is a new shapefile with the same attribute table as the input layer, but an additional field
-<em>Cluster ID</em> appended to indicate cluster membership of individual points.
-</p>
-
-<li><h4><a name="Cluster Center"/>Cluster Center</h4>
-<p>
-The <em>Cluster Centers Tool</em> comes into play, after clusters have been computed. The user
-has to pick a field indicating the cluster membership (it defaults to <em>Cluster ID</em>, if
-available). The basic functionality is only to compute, display and store the cluster centers. 
-</p>
-<img src="README-Dateien/Center_Use_1.png" border="1">
-<p>
-Optionally, the <em>line shapefile</em> can be specified and connecting lines
-between individual cluster members and their cluster centers will be drawn. 
-</p>
-<img src="README-Dateien/Center_Use_2.png" border="1">
-</li>
-</ol>
-
-<br><br><br>
+<p> The output always is a new field/attribute labelled <em>Cluster ID</em> appended to the input shapefile to indicate cluster membership of individual points.</p>
 
 <h3>Example usage</h3>
 
@@ -148,28 +122,18 @@ and needs to know about the optimum locations to minimize
 distances between individual logistic centers and customers nearby (875 altogether).
 </p> 
 <p>To find the optimum locations, the 
-<em>Clustering</em> is combined with the <em> Cluster Center</em> tool. 
-The user sets 8 as the targeted number of clusters and runs the algorithm
+<em>Clustering</em> is run to find group of customers who are close to each other. 
+The user sets 8 as the target number of clusters and runs the algorithm
 (in this case the K-means). The output is a point layer with the 
 same number of points as the input, but with the new field <em>Cluster ID</em> appended
 to the attribute table and the cluster members displayed in color according to
 their Cluster ID.
 </p>
-<img src="README-Dateien/Berlin_1.png" width=400 style="float: left; width: 48%; margin-right: 1%; margin-bottom: 0.5em;">
-<img src="README-Dateien/Berlin_2.png" width=400 style="float: left; width: 48%; margin-right: 1%; margin-bottom: 0.5em;">
-<p>
-Then, the cluster centers can be computed. First, the line shapefile is omitted
-and only the cluster centers (mean coordinates per cluster) are created.
-They are displayed as green stars. Second, the line shapefile is specified as well and
-connecting lines are displayed to better visualize
-individual clusters.
-</p>
-<img src="README-Dateien/Berlin_3.png" width=400 style="float: left; width: 48%; margin-right: 1%; margin-bottom: 0.5em;">
-<img src="README-Dateien/Berlin_4.png" width=400 style="float: left; width: 48%; margin-right: 1%; margin-bottom: 0.5em;">
-
-<br><br><br><br><br><br><br><br>
+<img src="README-Sources/Berlin_1.png" width=400 style="float: left; width: 48%; margin-right: 1%; margin-bottom: 0.5em;">
+<img src="README-Sources/Berlin_2.png" width=400 style="float: left; width: 48%; margin-right: 1%; margin-bottom: 0.5em;">
 
 </div>
+<br><br>
 </body>
 </html>
 
