@@ -33,7 +33,7 @@ class Dialog(QDialog, Ui_Dialog):
         self.inShape.addItems(layers)
 
     def updateUi(self):
-        self.setWindowTitle(self.tr("Customer clustering"))
+        self.setWindowTitle(self.tr("Clustering"))
         self.resize(381, 100)
 
     def update(self):
