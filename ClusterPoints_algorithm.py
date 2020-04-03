@@ -171,15 +171,16 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             id_attr = vlayer.dataProvider().fieldNameIndex(AttribValue[0])
             if id_attr<0:
                 raise QgsProcessingException("Field {} not found in input layer".format(AttribValue[0]))
-            if vlayer.fields()[id_attr].type()!=QVariant.Int and \
-                                        vlayer.fields()[id_attr].type()!=QVariant.Double:
-        	    raise QgsProcessingException("Field {} must be numeric".format(ZValue))
+            if not vlayer.fields()[id_attr].typeName().startswith('Int') and \
+                  not vlayer.fields()[id_attr].typeName().startswith('Real') and \
+                  vlayer.fields()[id_attr].type()!=QVariant.Double:
+        	    raise QgsProcessingException("Field {} must be numeric".format(AttribValue[0]))
             if SelectedFeaturesOnly:
                 fit = vlayer.getSelectedFeatures()
             else:
                 fit = vlayer.getFeatures()
             for infeat in fit:
-                if infeat[id_attr]:
+                if infeat[id_attr] or infeat[id_attr]==0:
                     points[infeat.id()].addZValue(infeat[id_attr])
                 else:
                     del points[infeat.id()]
