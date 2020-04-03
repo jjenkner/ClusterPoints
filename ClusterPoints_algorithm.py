@@ -129,7 +129,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             defaultValue=0,minValue=0,maxValue=100))
 
         self.addParameter(QgsProcessingParameterField(
-            self.AttribValue,self.tr('Name of attribute field'),'',
+            self.AttribValue,self.tr('Attribute field'),'',
             self.Points,optional=True))
 
     def processAlgorithm(self, parameters, context, progress):
