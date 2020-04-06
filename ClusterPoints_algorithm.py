@@ -201,8 +201,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                                        Distance_Type==1)/ \
                                                        self.compute_sd( \
                                                        [p.z() for p in points.values()])
+            zcenter = fsum([p.z() for p in points.values()])/len(points)
             for key in points.keys():
-                points[key].setZ(points[key].z()*standard_factor)
+                points[key].setZ((points[key].z()-zcenter)*standard_factor)
 
         # do the clustering
         if Cluster_Type==0:
