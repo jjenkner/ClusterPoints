@@ -183,16 +183,15 @@ class doCluster(GeoAlgorithm):
         vlayer.updateFields()
 
         # assign the output points to the clusters
+        fieldList = provider.fields()
         if SelectedFeaturesOnly:
             fit = vlayer.selectedFeaturesIterator()
         else:
             fit = provider.getFeatures()
+        icl = fieldList.indexFromName("Cluster_ID")
         key = 0
         while fit.nextFeature(infeat):
-            atMap = infeat.attributes()
-            atMap[-1] = cluster_id[key]
-            infeat.setAttributes(atMap)
-            vlayer.updateFeature(infeat)    
+            vlayer.dataProvider().changeAttributeValues({infeat.id():{icl:cluster_id[key]}})
             key += 1
         vlayer.commitChanges()
         progress.setPercentage(100)
