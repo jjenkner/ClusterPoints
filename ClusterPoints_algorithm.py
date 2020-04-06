@@ -199,9 +199,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         else:
             fit = vlayer.getFeatures()
         key = 0
-        id_clust = vlayer.dataProvider().fieldNameIndex("Cluster_ID")
+        icl = vlayer.dataProvider().fieldNameIndex("Cluster_ID")
         while fit.nextFeature(infeat):
-            vlayer.changeAttributeValue(infeat.id(), id_clust, cluster_id[key])
+            vlayer.dataProvider().changeAttributeValues({infeat.id():{icl:cluster_id[key]}})
             key += 1
         vlayer.commitChanges()
         progress.setProgress(100)
