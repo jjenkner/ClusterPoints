@@ -370,9 +370,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 numPoints = len(setList[i])
                 if numPoints == 0:
                     raise QgsProcessingException("Algorithm failed after "+ \
-                                                 "{} iterations: Choose a "+ \
+                                                 "{} iterations: Choose a ".format(loopCounter)+ \
                                                  "different random seed or "+ \
-                                                 "a smaller number of clusters".format(loopCounter))
+                                                 "a smaller number of clusters")
                 xcenter = fsum([points[p].x() for p in setList[i]])/numPoints
                 ycenter = fsum([points[p].y() for p in setList[i]])/numPoints
                 zcenter = fsum([points[p].z() for p in setList[i]])/numPoints
