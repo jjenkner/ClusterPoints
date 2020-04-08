@@ -398,7 +398,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         keys=[]
 
         # clusters are initially singletons
-        for p in reversed(list(points.keys())):
+        for p in sorted(points.keys(),reverse=True):
             clust[p] = Cluster_node(id=p,d=d,pz=pz)
             keys.append(p)
         
@@ -442,8 +442,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             alpha_j = float(jclust.size)/size
             for l in range(len(keys)):
                 lk = keys[l]
-                jl = tuple(sorted([jk,lk],reverse=True))
-                il = tuple(sorted([ik,lk],reverse=True))
+                jl = (jk,lk) if jk>lk else (lk,jk)
+                il = (ik,lk) if ik>lk else (lk,ik)
                 distances[(lk,currentclustid)] = alpha_i*distances[il]+alpha_j*distances[jl]
                 
             keys.append(currentclustid)
@@ -518,7 +518,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         keys=[]
 
         # clusters are initially singletons
-        for p in reversed(list(points.keys())):
+        for p in sorted(points.keys(),reverse=True):
             clust[p] = Cluster_node(id=p,d=d,pz=pz)
             keys.append(p)
         
@@ -564,8 +564,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 alpha_i = float(iclust.size+lclust.size)/(iclust.size+jclust.size+lclust.size)
                 alpha_j = float(jclust.size+lclust.size)/(iclust.size+jclust.size+lclust.size)
                 beta = -float(lclust.size)/(iclust.size+jclust.size+lclust.size)
-                jl = tuple(sorted([jk,lk],reverse=True))
-                il = tuple(sorted([ik,lk],reverse=True))
+                jl = (jk,lk) if jk>lk else (lk,jk)
+                il = (ik,lk) if ik>lk else (lk,ik)
                 distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
                                                alpha_j*distances[jl]+beta*distances[(ik,jk)]
                 
@@ -588,7 +588,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         keys=[]
 
         # clusters are initially singletons
-        for p in reversed(list(points.keys())):
+        for p in sorted(points.keys(),reverse=True):
             clust[p] = Cluster_node(id=p,d=d,pz=pz)
             keys.append(p)
             
@@ -636,8 +636,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             gamma = 0.5
             for l in range(len(keys)):
                 lk = keys[l]
-                jl = tuple(sorted([jk,lk],reverse=True))
-                il = tuple(sorted([ik,lk],reverse=True))
+                jl = (jk,lk) if jk>lk else (lk,jk)
+                il = (ik,lk) if ik>lk else (lk,ik)
                 distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
                             alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])
                 
