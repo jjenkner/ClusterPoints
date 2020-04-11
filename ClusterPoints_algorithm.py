@@ -51,7 +51,7 @@ from qgis.core import (QgsProcessing,QgsProcessingException,QgsProcessingAlgorit
 
 from math import fsum,sqrt
 from sys import float_info
-from collections import OrderedDict
+from bisect import bisect
 
 import random
 
@@ -162,9 +162,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             fit = vlayer.getFeatures()
 
         # initialize points for clustering
-        points = OrderedDict()
-        for infeat in fit:
-            points[infeat.id()] = QgsPoint(infeat.geometry().asPoint())
+        points = {infeat.id():QgsPoint(infeat.geometry().asPoint()) for \
+                  infeat in fit}
 
         # retrieve optional z values to consider in clustering
         if PercentAttrib>0 and parameters['AttribValue'] is not None:
@@ -218,16 +217,16 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 raise QgsProcessingException("Linkage must be Ward's, Single,"+ \
                                              " Complete or Average")
             elif Linkage==0:
-                clusters = self.hcluster_wards(progress,points,PercentAttrib, \
+                clusters = self.hcluster(progress,"wards",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==1:
                 clusters = self.hcluster_single(progress,points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==2:
-                clusters = self.hcluster_complete(progress,points,PercentAttrib, \
+                clusters = self.hcluster(progress,"complete",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==3:
-                clusters = self.hcluster_average(progress,points,PercentAttrib, \
+                clusters = self.hcluster(progress,"average",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
         del points
             
@@ -332,14 +331,39 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         return self.compute_sd(sd)
 
     # Define required functions for each clustering algorithm
-    
+
+    def init_kmeans_plusplus(self, points, pz, k, d, manhattan=False):
+        """
+        Initializes the K-means algorithm according to
+        Arthur, D. and Vassilvitskii, S. (2007)
+        Referred to as K-means++
+        """
+        
+        keys = list(points.keys())
+        
+        # draw first point randomly from dataset with uniform weights
+        p = random.choice(keys)
+        inits = [KMCluster(set([p]),points[p],d, pz)]
+        
+        # loop until k points were found
+        while len(inits)<k:
+            # define new probability weights for sampling
+            weights = [min([inits[i].distance2center(points[p], \
+                       manhattan) for i in range(len(inits))]) for p in keys]
+            # draw new point randomly with probability weights
+            p = random.uniform(0,sum(weights)-float_info.epsilon)
+            p = bisect([sum(weights[:i+1]) for i in range(len(weights))],p)
+            p = keys[p]
+            inits.append(KMCluster(set([p]),points[p],d, pz))
+            
+        return inits
+
     def kmeans(self, progress, points, pz, k, d, cutoff=10*float_info.epsilon, manhattan=False):
 
-        # Pick out k random points to use as our initial centroids
-        initial = random.sample(list(points.keys()), k)
-    
-        # Create k clusters using those centroids
-        clusters = [KMCluster(set([p]),points[p],d, pz) for p in initial]
+        # Create k clusters using the K-means++ initialization method
+        progress.pushInfo(self.tr("Initializing clusters with K-means++"))
+        clusters = self.init_kmeans_plusplus(points, pz, k, d, manhattan)
+        progress.pushInfo(self.tr("{} clusters successfully initialized".format(k)))
     
         # Loop through the dataset until the clusters stabilize
         loopCounter = 0
@@ -389,64 +413,92 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
     
         return [c.ids for c in clusters]
 
-    def hcluster_average(self, progress, points, pz, k, d, manhattan=False):
+    def hcluster(self, progress, link, points, pz, k, d, manhattan=False):
 
         clust={}
         distances={}
         currentclustid=-1
         numPoints=len(points)
-        keys=[]
 
         # clusters are initially singletons
-        for p in sorted(points.keys(),reverse=True):
-            clust[p] = Cluster_node(id=p,d=d,pz=pz)
-            keys.append(p)
+        for ik,p in zip(range(numPoints-1, -1, -1), points.keys()):
+            clust[ik] = Cluster_node(members=[p],d=d,pz=pz)
         
         # compute pairwise distances
-        for i in range(len(keys)):
-            ik = keys[i]
-            for j in range(i+1,len(keys)):
-                jk = keys[j]
-                distances[(ik,jk)]=clust[ik].getDistance(points[ik],points[jk],manhattan)
+        for ik in clust.keys():
+            for jk in clust.keys():
+                if jk<ik:
+                    distances[(ik,jk)]=clust[ik].getDistance(points[clust[ik].members[0]], \
+                                       points[clust[jk].members[0]],manhattan)
 
         while currentclustid>=k-numPoints:
             closest = float_info.max
     
             # loop through every pair looking for the smallest distance
-            for i in range(len(keys)):
-                ik = keys[i]
-                for j in range(i+1,len(keys)):
-                    jk = keys[j]
-                    dist=distances[(ik,jk)]
-                    if dist<closest:
-                        closest=dist
-                        ilowest=i
-                        jlowest=j
+            for ik in clust.keys():
+                for jk in clust.keys():
+                    if jk<ik:
+                        dist=distances[(ik,jk)]
+                        if dist<closest:
+                            closest=dist
+                            ik_lowest=ik
+                            jk_lowest=jk
             
-            # retrieve clusters to merge
-            ik = keys[ilowest]
-            jk = keys[jlowest]
-            iclust = clust[ik]
-            jclust = clust[jk]
-            size = iclust.size+jclust.size
-            del clust[ik]
-            del clust[jk]
-            keys.pop(jlowest)
-            keys.pop(ilowest)
+            # detect clusters to merge
+            ik = ik_lowest
+            jk = jk_lowest
             
             # create the new cluster
-            clust[currentclustid]=Cluster_node(size,left=iclust,right=jclust,
-                                               id=currentclustid,d=d,pz=pz)
-            # compute new distances according to the Lance-Williams algorithm
-            alpha_i = float(iclust.size)/size
-            alpha_j = float(jclust.size)/size
-            for l in range(len(keys)):
-                lk = keys[l]
-                jl = (jk,lk) if jk>lk else (lk,jk)
-                il = (ik,lk) if ik>lk else (lk,ik)
-                distances[(lk,currentclustid)] = alpha_i*distances[il]+alpha_j*distances[jl]
-                
-            keys.append(currentclustid)
+            clust[currentclustid]=Cluster_node(members=clust[ik].members+ \
+                                  clust[jk].members,d=d,pz=pz)
+                                  
+            # compute updated distances according to the Lance-Williams algorithm
+            
+            if link == 'wards':
+            
+                for lk in clust.keys():
+                    if lk not in (ik,jk,currentclustid):
+                        alpha_i = float(clust[ik].size+clust[lk].size)/ \
+                                  (clust[ik].size+clust[jk].size+clust[lk].size)
+                        alpha_j = float(clust[jk].size+clust[lk].size)/ \
+                                  (clust[ik].size+clust[jk].size+clust[lk].size)
+                        beta = -float(clust[lk].size)/(clust[ik].size+clust[jk].size+clust[lk].size)
+                        jl = (jk,lk) if jk>lk else (lk,jk)
+                        il = (ik,lk) if ik>lk else (lk,ik)
+                        distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
+                                  alpha_j*distances[jl]+beta*distances[(ik,jk)]            
+
+            elif link == 'complete':
+            
+                alpha_i = 0.5
+                alpha_j = 0.5
+                gamma = 0.5
+                for lk in clust.keys():
+                    if lk not in (ik,jk,currentclustid):
+                        jl = (jk,lk) if jk>lk else (lk,jk)
+                        il = (ik,lk) if ik>lk else (lk,ik)
+                        distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
+                                  alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])            
+            
+            
+            elif link == 'average':
+            
+                alpha_i = float(clust[ik].size)/clust[currentclustid].size
+                alpha_j = float(clust[jk].size)/clust[currentclustid].size
+                for lk in clust.keys():
+                    if lk not in (ik,jk,currentclustid):
+                        jl = (jk,lk) if jk>lk else (lk,jk)
+                        il = (ik,lk) if ik>lk else (lk,ik)
+                        distances[(lk,currentclustid)] = \
+                                  alpha_i*distances[il]+alpha_j*distances[jl]
+                                  
+            else:
+
+                 progress.pushInfo(self.tr("Link function invalid/not found"))
+                              
+            # delete deprecated clusters
+            del clust[ik]
+            del clust[jk]
             
             # cluster ids that weren't in the original set are negative
             progress.setProgress(int(90*currentclustid/(k-numPoints)))
@@ -454,27 +506,31 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         progress.pushInfo(self.tr("Cluster tree computed"))
 
-        return [c.getElements(c) for c in list(clust.values())]
+        return [c.members for c in list(clust.values())]
 
     def hcluster_single(self, progress, points, pz, k, d, manhattan=False):
 
         clusters={}
         distances=[]
-        keys = list(points.keys())
-        numPoints = len(keys)
+        numPoints = len(points)
         currentclustid = -1
+        keys = []
 
         # clusters are initially singletons
         cluster_sample=Cluster_node(d=d,pz=pz)
-        for p in keys:
-            clusters[p] = [p]
+        for ik,p in zip(range(numPoints-1, -1, -1), points.keys()):
+            clusters[ik] = [ik]
+            keys.append(p)
+        keys.reverse()
         
         # compute pairwise distances
-        for i in range(len(keys)):
-            ik = keys[i]
-            for j in range(i+1,len(keys)):
-                jk = keys[j]
-                distances.append((ik,jk,cluster_sample.getDistance(points[ik],points[jk],manhattan)))
+        for ik in clusters.keys():
+            for jk in clusters.keys():
+                if jk<ik:
+                    distances.append((ik,jk, \
+                                     cluster_sample.getDistance(points[keys[ik]], \
+                                     points[keys[jk]],manhattan)))
+                                     
         distances.sort(key=lambda x: x[2],reverse=True)
         
         while currentclustid>=k-numPoints:
@@ -507,149 +563,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         progress.pushInfo(self.tr("Cluster tree computed"))
 
-        return list(clusters.values())
-
-    def hcluster_wards(self, progress, points, pz, k, d, manhattan=False):
-
-        clust={}
-        distances={}
-        currentclustid=-1
-        numPoints=len(points)
-        keys=[]
-
-        # clusters are initially singletons
-        for p in sorted(points.keys(),reverse=True):
-            clust[p] = Cluster_node(id=p,d=d,pz=pz)
-            keys.append(p)
-        
-        # compute pairwise distances
-        for i in range(len(keys)):
-            ik = keys[i]
-            for j in range(i+1,len(keys)):
-                jk = keys[j]
-                distances[(ik,jk)]=clust[ik].getDistance(points[ik],points[jk],manhattan)
-
-        while currentclustid>=k-numPoints:
-            closest = float_info.max
-    
-            # loop through every pair looking for the smallest distance
-            for i in range(len(keys)):
-                ik = keys[i]
-                for j in range(i+1,len(keys)):
-                    jk = keys[j]
-                    dist=distances[(ik,jk)]
-                    if dist<closest:
-                        closest=dist
-                        ilowest=i
-                        jlowest=j
-            
-            # retrieve clusters to merge
-            ik = keys[ilowest]
-            jk = keys[jlowest]
-            iclust = clust[ik]
-            jclust = clust[jk]
-            size = iclust.size+jclust.size
-            del clust[ik]
-            del clust[jk]
-            keys.pop(jlowest)
-            keys.pop(ilowest)
-            
-            # create the new cluster
-            clust[currentclustid]=Cluster_node(size,left=iclust,right=jclust,
-                                               id=currentclustid,d=d,pz=pz)
-            # compute new distances according to the Lance-Williams algorithm
-            for l in range(len(keys)):
-                lk = keys[l]
-                lclust = clust[lk]
-                alpha_i = float(iclust.size+lclust.size)/(iclust.size+jclust.size+lclust.size)
-                alpha_j = float(jclust.size+lclust.size)/(iclust.size+jclust.size+lclust.size)
-                beta = -float(lclust.size)/(iclust.size+jclust.size+lclust.size)
-                jl = (jk,lk) if jk>lk else (lk,jk)
-                il = (ik,lk) if ik>lk else (lk,ik)
-                distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
-                                               alpha_j*distances[jl]+beta*distances[(ik,jk)]
-                
-            keys.append(currentclustid)
-
-            # cluster ids that weren't in the original set are negative
-            progress.setProgress(int(90*currentclustid/(k-numPoints)))
-            currentclustid-=1
-        
-        progress.pushInfo(self.tr("Cluster tree computed"))
-
-        return [c.getElements(c) for c in list(clust.values())]
-
-    def hcluster_complete(self, progress, points, pz, k, d, manhattan=False):
-
-        clust={}
-        distances={}
-        currentclustid=-1
-        numPoints=len(points)
-        keys=[]
-
-        # clusters are initially singletons
-        for p in sorted(points.keys(),reverse=True):
-            clust[p] = Cluster_node(id=p,d=d,pz=pz)
-            keys.append(p)
-            
-        keys = list(clust.keys())
-        keys.sort(reverse=True)
-        
-        # compute pairwise distances
-        for i in range(len(keys)):
-            ik = keys[i]
-            for j in range(i+1,len(keys)):
-                jk = keys[j]
-                distances[(ik,jk)]=clust[ik].getDistance(points[ik],points[jk],manhattan)
-
-        while currentclustid>=k-numPoints:
-            closest = float_info.max
-    
-            # loop through every pair looking for the smallest distance
-            for i in range(len(keys)):
-                ik = keys[i]
-                for j in range(i+1,len(keys)):
-                    jk = keys[j]
-                    dist=distances[(ik,jk)]
-                    if dist<closest:
-                        closest=dist
-                        ilowest=i
-                        jlowest=j
-
-            # retrieve clusters to merge
-            ik = keys[ilowest]
-            jk = keys[jlowest]
-            iclust = clust[ik]
-            jclust = clust[jk]
-            size = iclust.size+jclust.size
-            del clust[ik]
-            del clust[jk]
-            keys.pop(jlowest)
-            keys.pop(ilowest)
-
-            # create the new cluster
-            clust[currentclustid]=Cluster_node(size,left=iclust,right=jclust,
-                                               id=currentclustid,d=d,pz=pz)
-            # compute new distances according to the Lance-Williams algorithm
-            alpha_i = 0.5
-            alpha_j = 0.5
-            gamma = 0.5
-            for l in range(len(keys)):
-                lk = keys[l]
-                jl = (jk,lk) if jk>lk else (lk,jk)
-                il = (ik,lk) if ik>lk else (lk,ik)
-                distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
-                            alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])
-                
-            keys.append(currentclustid)
-
-            # cluster ids that weren't in the original set are negative
-            progress.setProgress(int(90*currentclustid/(k-numPoints)))
-            currentclustid-=1
-
-        progress.pushInfo(self.tr("Cluster tree computed"))
- 
-        return [c.getElements(c) for c in list(clust.values())]
+        return [[keys[c] for c in members] for members in list(clusters.values())]
 
 
 
@@ -717,11 +631,9 @@ class Cluster_node:
     '''
     Class for hierarchical clustering
     '''
-    def __init__(self, size=1, left=None, right=None, id=None, d=None, pz=0):
-        self.size = size
-        self.left = left
-        self.right = right
-        self.id = id
+    def __init__(self, members=[], d=None, pz=0):
+        self.members = members
+        self.size = len(members)
         self.d = d
         self.pz = pz
 
@@ -744,12 +656,3 @@ class Cluster_node:
             return (1-0.01*self.pz)* \
                 self.d.measureLine(QgsPointXY(point1),QgsPointXY(point2))+ \
                 0.01*self.pz*abs(point1.z()-point2.z())
-
-    def getElements(self,clust):
-        '''
-        Return all positive ids within the cluster
-        '''
-        if clust.id>=0:
-            return [clust.id]
-        else:
-            return self.getElements(clust.left)+self.getElements(clust.right)
