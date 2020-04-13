@@ -112,7 +112,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterEnum(
             self.Linkage,
             self.tr("Link functions for Hierarchical algorithm"),
-            ['Ward\'s','Single','Complete','Average'],optional=True))
+            ['Single','Complete','Average (only for small dataset)',
+            'Ward\'s (only for small dataset)','Centroid (only for small dataset)'],
+            optional=True))
         
         self.addParameter(QgsProcessingParameterEnum(
             self.Distance_Type,
@@ -198,7 +200,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             standard_factor = self.compute_sd_distance([p.x() for p in points.values()], \
                                                        [p.y() for p in points.values()], \
                                                        Distance_Type==1)/ \
-                                                       self.compute_sd( \
+                                                       self.__class__.compute_sd( \
                                                        [p.z() for p in points.values()])
             zcenter = fsum([p.z() for p in points.values()])/len(points)
             for key in points.keys():
@@ -214,20 +216,26 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         else:
             # Hierarchical clustering
             if parameters['Linkage'] is None:
-                raise QgsProcessingException("Linkage must be Ward's, Single,"+ \
-                                             " Complete or Average")
+                raise QgsProcessingException("Linkage must be Single,"+ \
+                                             " Complete, Average, Ward\'s"+ \
+                                             " or Centroid")
             elif Linkage==0:
-                clusters = self.hcluster(progress,"wards",points,PercentAttrib, \
+                clusters = self.hcluster_slink(progress,points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==1:
-                clusters = self.hcluster_single(progress,points,PercentAttrib, \
+                clusters = self.hcluster_clink(progress,points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==2:
-                clusters = self.hcluster(progress,"complete",points,PercentAttrib, \
-                                             NumberOfClusters,d,Distance_Type==1)
-            elif Linkage==3:
                 clusters = self.hcluster(progress,"average",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
+            elif Linkage==3:
+                clusters = self.hcluster(progress,"wards",points,PercentAttrib, \
+                                             NumberOfClusters,d,Distance_Type==1)
+                                             
+            elif Linkage==4:
+                clusters = self.hcluster(progress,"centroid",points,PercentAttrib, \
+                                             NumberOfClusters,d,Distance_Type==1)
+
         del points
             
         # assign cluster IDs
@@ -302,7 +310,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
     # Define auxiliary functions
     
-    def compute_sd(self, x):
+    @staticmethod
+    def compute_sd(x):
         """
         Computes (unbiased) standard deviation of x
         """
@@ -328,7 +337,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         else:
             for i in range(len(x)):
                 sd.append(sqrt((x[i]-xmean)*(x[i]-xmean)+(y[i]-ymean)*(y[i]-ymean)))
-        return self.compute_sd(sd)
+        return self.__class__.compute_sd(sd)
 
     # Define required functions for each clustering algorithm
 
@@ -454,19 +463,17 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                   
             # compute updated distances according to the Lance-Williams algorithm
             
-            if link == 'wards':
-            
+            if link == 'single':
+
+                alpha_i = 0.5
+                alpha_j = 0.5
+                gamma = -0.5
                 for lk in clust.keys():
                     if lk not in (ik,jk,currentclustid):
-                        alpha_i = float(clust[ik].size+clust[lk].size)/ \
-                                  (clust[ik].size+clust[jk].size+clust[lk].size)
-                        alpha_j = float(clust[jk].size+clust[lk].size)/ \
-                                  (clust[ik].size+clust[jk].size+clust[lk].size)
-                        beta = -float(clust[lk].size)/(clust[ik].size+clust[jk].size+clust[lk].size)
                         jl = (jk,lk) if jk>lk else (lk,jk)
                         il = (ik,lk) if ik>lk else (lk,ik)
                         distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
-                                  alpha_j*distances[jl]+beta*distances[(ik,jk)]            
+                                  alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])
 
             elif link == 'complete':
             
@@ -478,8 +485,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                         jl = (jk,lk) if jk>lk else (lk,jk)
                         il = (ik,lk) if ik>lk else (lk,ik)
                         distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
-                                  alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])            
-            
+                                  alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])
             
             elif link == 'average':
             
@@ -491,7 +497,36 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                         il = (ik,lk) if ik>lk else (lk,ik)
                         distances[(lk,currentclustid)] = \
                                   alpha_i*distances[il]+alpha_j*distances[jl]
-                                  
+
+            elif link == 'wards':
+            
+                for lk in clust.keys():
+                    if lk not in (ik,jk,currentclustid):
+                        alpha_i = float(clust[ik].size+clust[lk].size)/ \
+                                  (clust[ik].size+clust[jk].size+clust[lk].size)
+                        alpha_j = float(clust[jk].size+clust[lk].size)/ \
+                                  (clust[ik].size+clust[jk].size+clust[lk].size)
+                        beta = -float(clust[lk].size)/(clust[ik].size+clust[jk].size+clust[lk].size)
+                        jl = (jk,lk) if jk>lk else (lk,jk)
+                        il = (ik,lk) if ik>lk else (lk,ik)
+                        distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
+                                  alpha_j*distances[jl]+beta*distances[(ik,jk)]
+
+            elif link == 'centroid':
+            
+                for lk in clust.keys():
+                    if lk not in (ik,jk,currentclustid):
+                        alpha_i = float(clust[ik].size)/ \
+                                  (clust[ik].size+clust[jk].size)
+                        alpha_j = float(clust[jk].size)/ \
+                                  (clust[ik].size+clust[jk].size)
+                        beta = -float(clust[ik].size*clust[jk].size)/ \
+                                ((clust[ik].size+clust[jk].size)**2)
+                        jl = (jk,lk) if jk>lk else (lk,jk)
+                        il = (ik,lk) if ik>lk else (lk,ik)
+                        distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
+                                  alpha_j*distances[jl]+beta*distances[(ik,jk)]
+
             else:
 
                  progress.pushInfo(self.tr("Link function invalid/not found"))
@@ -508,62 +543,163 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         return [c.members for c in list(clust.values())]
 
-    def hcluster_single(self, progress, points, pz, k, d, manhattan=False):
+    def hcluster_slink(self, progress, points, pz, k, d, manhattan=False):
 
-        clusters={}
-        distances=[]
+        def findClusterMembers(Pi,keys,ik,clusters):
+            members = []
+            for i in (i for i,jk in enumerate(Pi) if jk==ik):
+                if keys[i] not in [x for y in clusters for x in y]:
+                    members.append(keys[i])
+                members += findClusterMembers(Pi,keys,i,clusters)
+            return members
+
         numPoints = len(points)
-        currentclustid = -1
-        keys = []
-
-        # clusters are initially singletons
+        keys = list(points.keys())
+        Pi = [None]*numPoints
+        Lambda = [None]*numPoints
+        M = [None]*numPoints
+        iks = []
+        clusters = []
+        
+        # Initialize SLINK algorithm
+        Pi[0] = 0
+        Lambda[0] = float_info.max
         cluster_sample=Cluster_node(d=d,pz=pz)
-        for ik,p in zip(range(numPoints-1, -1, -1), points.keys()):
-            clusters[ik] = [ik]
-            keys.append(p)
-        keys.reverse()
         
-        # compute pairwise distances
-        for ik in clusters.keys():
-            for jk in clusters.keys():
-                if jk<ik:
-                    distances.append((ik,jk, \
-                                     cluster_sample.getDistance(points[keys[ik]], \
-                                     points[keys[jk]],manhattan)))
-                                     
-        distances.sort(key=lambda x: x[2],reverse=True)
-        
-        while currentclustid>=k-numPoints:
-            toMerge = distances.pop()
-            ik = toMerge[0]
-            jk = toMerge[1]
-            if clusters[ik]!=clusters[jk]:
-                # retrieve indexes of cluster
-                if isinstance(clusters[ik],int):
-                    members = clusters[clusters[ik]]
-                    del clusters[clusters[ik]]
+        # Iterate over vertices (called OTUs)
+        for i in range(1,numPoints):
+            Pi[i] = i
+            Lambda[i] = float_info.max
+            M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]], \
+                     manhattan) for p in range(i)]
+            for p in range(i):
+                if Lambda[p]>=M[p]:
+                    M[Pi[p]] = min(M[Pi[p]],Lambda[p])
+                    Lambda[p] = M[p]
+                    Pi[p] = i
                 else:
-                    members = [ik]
-                if isinstance(clusters[jk],int):
-                    members += clusters[clusters[jk]]
-                    del clusters[clusters[jk]]
-                else:
-                    members += [jk]
-                for member in members:
-                    clusters[member] = currentclustid
-                clusters[currentclustid] = members
-                progress.setProgress(int(90*currentclustid/(k-numPoints)))
-                currentclustid -= 1
+                    M[Pi[p]] = min(M[Pi[p]],M[p])
+            for p in range(i):
+                if Lambda[p]>=Lambda[Pi[p]]:
+                    Pi[p] = i
+            progress.setProgress(int(90*i/numPoints))
+
+        progress.pushInfo("Pi: "+str(Pi))
+        progress.pushInfo("Lambda: "+str(Lambda))
+
+        # Identify clusters in pointer representation
+        for clusterIndex in range(1,k):
+            closest = float_info.min
+            
+            for p in range(numPoints-1):
+                if Lambda[p]>closest:
+                    ik = p
+                    closest = Lambda[p]
+            Lambda[ik] = float_info.min
+            iks.append(ik)
+
+        iks.reverse()
         
-        while currentclustid<0:
-            if currentclustid in clusters:
-                for member in clusters[currentclustid]:
-                    del clusters[member]
-            currentclustid +=1
+        for ik in iks:
+            clusters.append([keys[ik]]+findClusterMembers(Pi,keys,ik,clusters))
+            
+        # assign remaining points to the last cluster
+        clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
+
+        progress.setProgress(90)
+        progress.pushInfo("Clusters: "+str(clusters))
 
         progress.pushInfo(self.tr("Cluster tree computed"))
 
-        return [[keys[c] for c in members] for members in list(clusters.values())]
+        return clusters
+
+    def hcluster_clink(self, progress, points, pz, k, d, manhattan=False):
+
+        def findClusterMembers(Pi,keys,ik,clusters):
+            members = []
+            for i in (i for i,jk in enumerate(Pi) if jk==ik):
+                if keys[i] not in [x for y in clusters for x in y]:
+                    members.append(keys[i])
+                members += findClusterMembers(Pi,keys,i,clusters)
+            return members
+
+        numPoints = len(points)
+        keys = list(points.keys())
+        Pi = [None]*numPoints
+        Lambda = [None]*numPoints
+        M = [None]*numPoints
+        iks = []
+        clusters = []
+        
+        # Initialize CLINK algorithm
+        Pi[0] = 0
+        Lambda[0] = float_info.max
+        cluster_sample=Cluster_node(d=d,pz=pz)
+        
+        # Iterate over vertices (called OTUs)
+        for i in range(1,numPoints):
+            Pi[i] = i
+            Lambda[i] = float_info.max
+            M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]], \
+                     manhattan) for p in range(i)]
+            for p in range(i):
+                if Lambda[p]<M[p]:
+                    M[Pi[p]] = max(M[Pi[p]],M[p])
+                    M[p] = float_info.max
+            a = i-1
+            for p in range(i):
+                if Lambda[i-p-1]>=M[Pi[i-p-1]]:
+                    if M[i-p-1]<M[a]: a = i-p-1
+                else:
+                    M[i-p-1] = float_info.max
+            b = Pi[a]
+            c = Lambda[a]
+            Pi[a] = i
+            Lambda[a] = M[a]
+            if a<i-1:
+                while b<i-1:
+                    d = Pi[b]
+                    e = Lambda[b]
+                    Pi[b] = i
+                    Lambda[b] = c
+                    b = d
+                    c = e
+                if b==i-1:
+                    Pi[b] = i
+                    Lambda[b] = c
+            for p in range(i):
+                if Pi[Pi[p]]==i:
+                    if Lambda[p]>=Lambda[Pi[p]]: Pi[p] = i
+            progress.setProgress(int(90*i/numPoints))
+
+        progress.pushInfo("Pi: "+str(Pi))
+        progress.pushInfo("Lambda: "+str(Lambda))
+
+        # Identify clusters in pointer representation
+        for clusterIndex in range(1,k):
+            closest = float_info.min
+            
+            for p in range(numPoints-1):
+                if Lambda[p]>closest:
+                    ik = p
+                    closest = Lambda[p]
+            Lambda[ik] = float_info.min
+            iks.append(ik)
+
+        iks.reverse()
+        
+        for ik in iks:
+            clusters.append([keys[ik]]+findClusterMembers(Pi,keys,ik,clusters))
+            
+        # assign remaining points to the last cluster
+        clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
+
+        progress.setProgress(90)
+        progress.pushInfo("Clusters: "+str(clusters))
+
+        progress.pushInfo(self.tr("Cluster tree computed"))
+
+        return clusters
 
 
 
