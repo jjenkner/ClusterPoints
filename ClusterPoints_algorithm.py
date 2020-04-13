@@ -34,7 +34,6 @@ __revision__ = '$Format:%H$'
 
 import os
 import sys
-import inspect
 
 from qgis.core import QgsProcessingAlgorithm, QgsApplication
 from qgis.core import QgsProcessingProvider
@@ -230,8 +229,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==3:
                 clusters = self.hcluster(progress,"wards",points,PercentAttrib, \
-                                             NumberOfClusters,d,Distance_Type==1)
-                                             
+                                             NumberOfClusters,d,Distance_Type==1)                     
             elif Linkage==4:
                 clusters = self.hcluster(progress,"centroid",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
@@ -352,18 +350,18 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         
         # draw first point randomly from dataset with uniform weights
         p = random.choice(keys)
-        inits = [KMCluster(set([p]),points[p],d, pz)]
+        inits = [KMCluster(set([p]),points[p], d, pz, manhattan)]
         
         # loop until k points were found
         while len(inits)<k:
             # define new probability weights for sampling
-            weights = [min([inits[i].distance2center(points[p], \
-                       manhattan) for i in range(len(inits))]) for p in keys]
+            weights = [min([inits[i].distance2center(points[p]) \
+                       for i in range(len(inits))]) for p in keys]
             # draw new point randomly with probability weights
             p = random.uniform(0,sum(weights)-float_info.epsilon)
             p = bisect([sum(weights[:i+1]) for i in range(len(weights))],p)
             p = keys[p]
-            inits.append(KMCluster(set([p]),points[p],d, pz))
+            inits.append(KMCluster(set([p]),points[p], d, pz, manhattan))
             
         return inits
 
@@ -389,7 +387,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 smallest_distance = float_info.max
         
                 for i in range(k):
-                    distance = clusters[i].distance2center(points[p],manhattan)
+                    distance = clusters[i].distance2center(points[p])
                     if distance < smallest_distance:
                         smallest_distance = distance
                         clusterIndex = i
@@ -410,7 +408,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 ycenter = fsum([points[p].y() for p in setList[i]])/numPoints
                 zcenter = fsum([points[p].z() for p in setList[i]])/numPoints
                 # Calculate how far the centroid moved in this iteration
-                shift = clusters[i].update(setList[i], QgsPoint(xcenter,ycenter,zcenter), manhattan)
+                shift = clusters[i].update(setList[i], QgsPoint(xcenter,ycenter,zcenter))
                 # Keep track of the largest move from all cluster centroid updates
                 biggest_shift = max(biggest_shift, shift)
 
@@ -431,14 +429,14 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         # clusters are initially singletons
         for ik,p in zip(range(numPoints-1, -1, -1), points.keys()):
-            clust[ik] = Cluster_node(members=[p],d=d,pz=pz)
+            clust[ik] = Cluster_node(members=[p],d=d,pz=pz,manhattan=manhattan)
         
         # compute pairwise distances
         for ik in clust.keys():
             for jk in clust.keys():
                 if jk<ik:
                     distances[(ik,jk)]=clust[ik].getDistance(points[clust[ik].members[0]], \
-                                       points[clust[jk].members[0]],manhattan)
+                                       points[clust[jk].members[0]])
 
         while currentclustid>=k-numPoints:
             closest = float_info.max
@@ -564,14 +562,14 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         # Initialize SLINK algorithm
         Pi[0] = 0
         Lambda[0] = float_info.max
-        cluster_sample=Cluster_node(d=d,pz=pz)
+        cluster_sample=Cluster_node(d=d,pz=pz,manhattan=manhattan)
         
         # Iterate over vertices (called OTUs)
         for i in range(1,numPoints):
             Pi[i] = i
             Lambda[i] = float_info.max
-            M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]], \
-                     manhattan) for p in range(i)]
+            M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]]) \
+                     for p in range(i)]
             for p in range(i):
                 if Lambda[p]>=M[p]:
                     M[Pi[p]] = min(M[Pi[p]],Lambda[p])
@@ -640,8 +638,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         for i in range(1,numPoints):
             Pi[i] = i
             Lambda[i] = float_info.max
-            M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]], \
-                     manhattan) for p in range(i)]
+            M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]]) \
+                     for p in range(i)]
             for p in range(i):
                 if Lambda[p]<M[p]:
                     M[Pi[p]] = max(M[Pi[p]],M[p])
@@ -709,7 +707,7 @@ class KMCluster:
     '''
     Class for k-means clustering
     '''
-    def __init__(self, ids, centerpoint, d, pz=0):
+    def __init__(self, ids, centerpoint, d, pz=0, manhattan=False):
         '''
         ids - set of integer IDs of the cluster points
         centerpoint - point of centroid
@@ -730,8 +728,11 @@ class KMCluster:
         
         # The percentage contribution of the z value
         self.pz = pz
+        
+        # Whether to use the Manhattan distance 
+        self.manhattan = manhattan
     
-    def update(self, ids, centerpoint, manhattan=False):
+    def update(self, ids, centerpoint):
         '''
         Returns the distance between the previous centroid coordinates
         and the new centroid coordinates 
@@ -740,14 +741,14 @@ class KMCluster:
         old_centerpoint = self.centerpoint
         self.ids = ids
         self.centerpoint = centerpoint
-        return self.distance2center(old_centerpoint, manhattan)
+        return self.distance2center(old_centerpoint)
     
-    def distance2center(self, point, manhattan=False):
+    def distance2center(self, point):
         '''
         "2-dimensional Euclidean distance or Manhattan distance to centerpoint
         plus percentage contribution (pz) of z value.
         '''
-        if manhattan:
+        if self.manhattan:
             return (1-0.01*self.pz)* \
                 (self.d.measureLine(QgsPointXY(self.centerpoint), \
                 QgsPointXY(point.x(),self.centerpoint.y()))+ \
@@ -767,18 +768,19 @@ class Cluster_node:
     '''
     Class for hierarchical clustering
     '''
-    def __init__(self, members=[], d=None, pz=0):
+    def __init__(self, members=[], d=None, pz=0, manhattan=False):
         self.members = members
         self.size = len(members)
         self.d = d
         self.pz = pz
+        self.manhattan = manhattan
 
-    def getDistance(self, point1, point2, manhattan=False):
+    def getDistance(self, point1, point2):
         '''
         2-dimensional Euclidean distance or Manhattan distance between points 1 and 2
         plus percentage contribution (pz) of z value.
         '''
-        if manhattan:
+        if self.manhattan:
             return (1-0.01*self.pz)*(self.d.measureLine(QgsPointXY(point1), \
                 QgsPointXY(point2.x(),point1.y()))+ \
                 self.d.measureLine(QgsPointXY(point1), \
