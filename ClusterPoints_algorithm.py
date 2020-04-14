@@ -23,7 +23,7 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2020-04-03'
+__date__ = '2020-04-14'
 __copyright__ = '(C) 2020 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
@@ -111,8 +111,11 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterEnum(
             self.Linkage,
             self.tr("Link functions for Hierarchical algorithm"),
-            ['Single','Complete','Average (only for small dataset)',
-            'Ward\'s (only for small dataset)','Centroid (only for small dataset)'],
+            ['Single (SLINK)','Complete (Lance-Williams, only for small dataset)',
+            'Median (Lance-Williams, only for small dataset)',
+            'Unweighted Average (Lance-Williams, only for small dataset)',
+            'Ward\'s (Lance-Williams, only for small dataset)',
+            'Centroid (Lance-Williams, only for small dataset)'],
             optional=True))
         
         self.addParameter(QgsProcessingParameterEnum(
@@ -215,22 +218,25 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         else:
             # Hierarchical clustering
             if parameters['Linkage'] is None:
-                raise QgsProcessingException("Linkage must be Single,"+ \
-                                             " Complete, Average, Ward\'s"+ \
-                                             " or Centroid")
+                raise QgsProcessingException("Linkage must be Single, "+ \
+                                             "Complete, Median, Unweighted Average,"+ \
+                                             " Ward\'s or Centroid")
             elif Linkage==0:
                 clusters = self.hcluster_slink(progress,points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==1:
-                clusters = self.hcluster_clink(progress,points,PercentAttrib, \
+                clusters = self.hcluster(progress,"complete",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==2:
-                clusters = self.hcluster(progress,"average",points,PercentAttrib, \
+                clusters = self.hcluster(progress,"median",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             elif Linkage==3:
+                clusters = self.hcluster(progress,"average",points,PercentAttrib, \
+                                             NumberOfClusters,d,Distance_Type==1)
+            elif Linkage==4:
                 clusters = self.hcluster(progress,"wards",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)                     
-            elif Linkage==4:
+            elif Linkage==5:
                 clusters = self.hcluster(progress,"centroid",points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
 
@@ -484,7 +490,19 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                         il = (ik,lk) if ik>lk else (lk,ik)
                         distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
                                   alpha_j*distances[jl]+gamma*abs(distances[il]-distances[jl])
+
+            elif link == 'median':
             
+                alpha_i = 0.5
+                alpha_j = 0.5
+                beta = -0.25
+                for lk in clust.keys():
+                    if lk not in (ik,jk,currentclustid):
+                        jl = (jk,lk) if jk>lk else (lk,jk)
+                        il = (ik,lk) if ik>lk else (lk,ik)
+                        distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
+                                  alpha_j*distances[jl]+beta*distances[(ik,jk)]
+  
             elif link == 'average':
             
                 alpha_i = float(clust[ik].size)/clust[currentclustid].size
@@ -501,10 +519,11 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 for lk in clust.keys():
                     if lk not in (ik,jk,currentclustid):
                         alpha_i = float(clust[ik].size+clust[lk].size)/ \
-                                  (clust[ik].size+clust[jk].size+clust[lk].size)
+                                  (clust[currentclustid].size+clust[lk].size)
                         alpha_j = float(clust[jk].size+clust[lk].size)/ \
-                                  (clust[ik].size+clust[jk].size+clust[lk].size)
-                        beta = -float(clust[lk].size)/(clust[ik].size+clust[jk].size+clust[lk].size)
+                                  (clust[currentclustid].size+clust[lk].size)
+                        beta = -float(clust[lk].size)/ \
+                                (clust[currentclustid].size+clust[lk].size)
                         jl = (jk,lk) if jk>lk else (lk,jk)
                         il = (ik,lk) if ik>lk else (lk,ik)
                         distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
@@ -514,12 +533,10 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             
                 for lk in clust.keys():
                     if lk not in (ik,jk,currentclustid):
-                        alpha_i = float(clust[ik].size)/ \
-                                  (clust[ik].size+clust[jk].size)
-                        alpha_j = float(clust[jk].size)/ \
-                                  (clust[ik].size+clust[jk].size)
+                        alpha_i = float(clust[ik].size)/clust[currentclustid].size
+                        alpha_j = float(clust[jk].size)/clust[currentclustid].size
                         beta = -float(clust[ik].size*clust[jk].size)/ \
-                                ((clust[ik].size+clust[jk].size)**2)
+                                (clust[currentclustid].size**2)
                         jl = (jk,lk) if jk>lk else (lk,jk)
                         il = (ik,lk) if ik>lk else (lk,ik)
                         distances[(lk,currentclustid)] = alpha_i*distances[il]+ \
@@ -569,7 +586,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             Pi[i] = i
             Lambda[i] = float_info.max
             M[:i] = [cluster_sample.getDistance(points[keys[p]],points[keys[i]]) \
-                     for p in range(i)]
+                     for p in range(i)]            
             for p in range(i):
                 if Lambda[p]>=M[p]:
                     M[Pi[p]] = min(M[Pi[p]],Lambda[p])
@@ -577,13 +594,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                     Pi[p] = i
                 else:
                     M[Pi[p]] = min(M[Pi[p]],M[p])
-            for p in range(i):
-                if Lambda[p]>=Lambda[Pi[p]]:
-                    Pi[p] = i
+            Pi[:i] = [x if Lambda[x]>Lambda[p] else i for p,x in enumerate(Pi[:i])]
             progress.setProgress(int(90*i/numPoints))
-
-        progress.pushInfo("Pi: "+str(Pi))
-        progress.pushInfo("Lambda: "+str(Lambda))
 
         # Identify clusters in pointer representation
         for clusterIndex in range(1,k):
@@ -605,8 +617,6 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
 
         progress.setProgress(90)
-        progress.pushInfo("Clusters: "+str(clusters))
-
         progress.pushInfo(self.tr("Cluster tree computed"))
 
         return clusters
@@ -632,7 +642,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         # Initialize CLINK algorithm
         Pi[0] = 0
         Lambda[0] = float_info.max
-        cluster_sample=Cluster_node(d=d,pz=pz)
+        cluster_sample=Cluster_node(d=d,pz=pz,manhattan=manhattan)
         
         # Iterate over vertices (called OTUs)
         for i in range(1,numPoints):
@@ -665,13 +675,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 if b==i-1:
                     Pi[b] = i
                     Lambda[b] = c
-            for p in range(i):
-                if Pi[Pi[p]]==i:
-                    if Lambda[p]>=Lambda[Pi[p]]: Pi[p] = i
+            Pi[:i] = [x if Pi[x]<i or Lambda[x]>Lambda[p] else i for \
+                      p,x in enumerate(Pi[:i])]
             progress.setProgress(int(90*i/numPoints))
-
-        progress.pushInfo("Pi: "+str(Pi))
-        progress.pushInfo("Lambda: "+str(Lambda))
 
         # Identify clusters in pointer representation
         for clusterIndex in range(1,k):
@@ -693,8 +699,6 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
 
         progress.setProgress(90)
-        progress.pushInfo("Clusters: "+str(clusters))
-
         progress.pushInfo(self.tr("Cluster tree computed"))
 
         return clusters

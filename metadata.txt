@@ -20,7 +20,7 @@ repository=https://github.com/jjenkner/ClusterPoints
 
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
-changelog=New Centroid linkage clustering as well as faster and more efficient algorithms for single and complete linkage
+changelog=New Median and Centroid linkage as well as faster and more efficient algorithms for single and linkage (SLINK)
 
 # Tags are comma separated with spaces allowed
 tags=grouping cluster machine learning points link functions K-means hierarchical
