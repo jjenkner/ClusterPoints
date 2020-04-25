@@ -1,0 +1,47 @@
+# This file contains metadata for your plugin.
+
+# This file should be included when you package your plugin.# Mandatory items:
+
+[general]
+name=ClusterPoints
+qgisMinimumVersion=3.6
+description=Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. In addition to the geographical coordinates, one numerical field can now be incorporated into the clustering as well.
+version=4.7
+author=Johannes Jenkner
+email=jjenkner@web.de
+
+about=Sometimes it is requisite to determine distinct groups of points on a map which are closest to each other. To automatize this process, Cluster Points allows you to find a predefined number of groups with mutually close points. <br><br>The cluster algorithms are well-known, but until now there has not been a comprehensive implementation for a GIS system, yet. The user may also prescribe one numerical field which can be incorporated into the spatial clustering by a prescribed percentage. This plugin was started during the project phase of a GIS-Analyst training course in Berlin (https://gis-trainer.de).
+
+tracker=https://github.com/jjenkner/ClusterPoints/issues
+repository=https://github.com/jjenkner/ClusterPoints
+# End of mandatory metadata
+
+# Recommended items:
+
+hasProcessingProvider=yes
+# Uncomment the following line and add your changelog:
+changelog=New Median and Centroid linkage as well as faster and more efficient algorithm for single linkage (SLINK)
+
+# Tags are comma separated with spaces allowed
+tags=grouping cluster machine learning points link functions K-means hierarchical
+
+homepage=http://jjenkner.com/ClusterPoints
+category=Analysis
+icon=icon.png
+# experimental flag
+experimental=False
+
+# deprecated flag (applies to the whole plugin, not just a single version)
+deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+Category of the plugin: Raster, Vector, Database or Web
+# category=
+
+# If the plugin can run on QGIS Server.
+server=False
+
