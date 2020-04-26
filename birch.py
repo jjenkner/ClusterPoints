@@ -783,8 +783,8 @@ class cftree:
         for index_element in range(0, len(list_vector)):
             if point_representation is True:
                 square_sum += ((1-0.01*self.__pz)*list_vector[index_element].x())**2
-                square_sum += ((1-0.01*self.__pz)*list_vector[index_element].x())**2
-                square_sum += (0.01*self.__pz*list_vector[index_element].x())**2
+                square_sum += ((1-0.01*self.__pz)*list_vector[index_element].y())**2
+                square_sum += (0.01*self.__pz*list_vector[index_element].z())**2
             else:
                 square_sum += (list_vector[index_element])**2
          
@@ -1190,25 +1190,34 @@ class birch:
         cf_labels = {i:index_cluster for index_cluster,p in enumerate(self.__cf_clusters) \
                      for i in p}
 
-        cf_data = copy(self.__cf_data)
-        for key in cf_data.keys():
-             cf_data[key] = ((1-0.01*self.__pz)*cf_data[key].x(), \
-                             (1-0.01*self.__pz)*cf_data[key].y(), \
-                             0.01*self.__pz*cf_data[key].z())
-                             
-        po_data = copy(self.__pointer_data)
-        for key in po_data.keys():
-             po_data[key] = ((1-0.01*self.__pz)*po_data[key].x(), \
-                             (1-0.01*self.__pz)*po_data[key].y(), \
-                             0.01*self.__pz*po_data[key].z())
+        for key in self.__cf_data.keys():
+             self.__cf_data[key] = ((1-0.01*self.__pz)*self.__cf_data[key].x(), \
+                             (1-0.01*self.__pz)*self.__cf_data[key].y(), \
+                             0.01*self.__pz*self.__cf_data[key].z())
+
+        for key in self.__pointer_data.keys():
+             self.__point_data[key] = ((1-0.01*self.__pz)*self.__point_data[key].x(), \
+                             (1-0.01*self.__pz)*self.__point_data[key].y(), \
+                              0.01*self.__pz*self.__point_data[key].z())
 
         self.__clusters = [[] for _ in range(len(self.__cf_clusters))]
-        for index_point in po_data.keys():
-            index_cf_entry = numpy.argmin(numpy.sum(numpy.square(
-                numpy.subtract(list(cf_data.values()), po_data[index_point])), axis=1))
-            index_cf_entry = list(cf_data.keys())[index_cf_entry]
-            index_cluster = cf_labels[index_cf_entry]
-            self.__clusters[index_cluster].append(index_point)
+
+        if self.__manhattan:
+            for index_point in self.__pointer_data.keys():
+                index_cf_entry = numpy.argmin(numpy.sum(numpy.absolute(
+                    numpy.subtract(list(self.__cf_data.values()), \
+                    self.__pointer_data[index_point])), axis=1))
+                index_cf_entry = list(self.__cf_data.keys())[index_cf_entry]
+                index_cluster = cf_labels[index_cf_entry]
+                self.__clusters[index_cluster].append(index_point)
+        else:
+            for index_point in self.__pointer_data.keys():
+                index_cf_entry = numpy.argmin(numpy.sum(numpy.square(
+                    numpy.subtract(list(self.__cf_data.values()), \
+                    self.__pointer_data[index_point])), axis=1))
+                index_cf_entry = list(self.__cf_data.keys())[index_cf_entry]
+                index_cluster = cf_labels[index_cf_entry]
+                self.__clusters[index_cluster].append(index_point)
 
         return self.__clusters
 
