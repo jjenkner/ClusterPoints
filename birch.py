@@ -1130,9 +1130,9 @@ class cftree:
 
 class birch:
     
-    def __init__(self, data, number_clusters, branching_factor=50, max_node_entries=200, diameter=0.5,
+    def __init__(self, data, number_clusters, branching_factor=100, max_node_entries=500, diameter=0.5,
                  d = None, pz = 0, manhattan = False,
-                 entry_size_limit=500,
+                 entry_size_limit=1000,
                  diameter_multiplier=1.5,
                  ccore=True):
         """!
@@ -1190,31 +1190,25 @@ class birch:
         cf_labels = {i:index_cluster for index_cluster,p in enumerate(self.__cf_clusters) \
                      for i in p}
 
+        cf_data = copy(self.__cf_data)
+        for key in cf_data.keys():
+             cf_data[key] = ((1-0.01*self.__pz)*cf_data[key].x(), \
+                             (1-0.01*self.__pz)*cf_data[key].y(), \
+                             0.01*self.__pz*cf_data[key].z())
+                             
+        po_data = copy(self.__pointer_data)
+        for key in po_data.keys():
+             po_data[key] = ((1-0.01*self.__pz)*po_data[key].x(), \
+                             (1-0.01*self.__pz)*po_data[key].y(), \
+                             0.01*self.__pz*po_data[key].z())
+
         self.__clusters = [[] for _ in range(len(self.__cf_clusters))]
-        
-        for key in self.__pointer_data.keys():
-            p = self.__pointer_data[key]
-            smallest_distance = float_info.max
-            for index_point in self.__cf_data.keys():
-                q = self.__cf_data[index_point]
-                if self.__manhattan:
-                    dist = (1-0.01*self.__pz)*(self.__d.measureLine(QgsPointXY(p), \
-                            QgsPointXY(p.x(),q.y()))+ \
-                            self.__d.measureLine(QgsPointXY(p), \
-                            QgsPointXY(q.x(),p.y()))+ \
-                            self.__d.measureLine(QgsPointXY(q), \
-                            QgsPointXY(p.x(),q.y()))+ \
-                            self.__d.measureLine(QgsPointXY(q), \
-                            QgsPointXY(q.x(),p.y())))+ \
-                            2*0.01*self.__pz*abs(p.z()-q.z())
-                else:
-                    dist = (1-0.01*self.__pz)* \
-                           self.__d.measureLine(QgsPointXY(p),QgsPointXY(q))+ \
-                           0.01*self.__pz*abs(p.z()-q.z())
-                if dist < smallest_distance:
-                    smallest_dist = dist
-                    index_cluster = cf_labels[index_point]
-            self.__clusters[index_cluster].append(key)
+        for index_point in po_data.keys():
+            index_cf_entry = numpy.argmin(numpy.sum(numpy.square(
+                numpy.subtract(list(cf_data.values()), po_data[index_point])), axis=1))
+            index_cf_entry = list(cf_data.keys())[index_cf_entry]
+            index_cluster = cf_labels[index_cf_entry]
+            self.__clusters[index_cluster].append(index_point)
 
         return self.__clusters
 

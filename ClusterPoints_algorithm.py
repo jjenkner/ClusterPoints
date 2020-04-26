@@ -32,13 +32,9 @@ __revision__ = '$Format:%H$'
 
 
 
-import os
-import sys
-
 from .birch import birch
 
-from qgis.core import QgsProcessingAlgorithm, QgsApplication
-from qgis.core import QgsProcessingProvider
+from qgis.core import QgsProcessingAlgorithm,QgsApplication,QgsProcessingProvider
 
 from PyQt5.QtCore import QCoreApplication,QVariant
 from qgis.core import (QgsProcessing,QgsProcessingException,QgsProcessingAlgorithm,
@@ -49,6 +45,9 @@ from qgis.core import (QgsProcessing,QgsProcessingException,QgsProcessingAlgorit
                                                 QgsProcessingParameterEnum,
                                                 QgsProcessingParameterNumber,
                                                 QgsProcessingParameterField)
+
+from qgis.core import QgsVectorLayer,QgsFeature,QgsGeometry,QgsProcessingContext
+from qgis.utils import iface
 
 from math import fsum,sqrt
 from sys import float_info
@@ -80,6 +79,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
     SelectedFeaturesOnly = 'SelectedFeaturesOnly'
     Cluster_Type = 'Cluster_Type'
     RandomSeed = 'RandomSeed'
+    Birch_Diameter = 'Birch_Diameter'
     Linkage = 'Linkage'
     Distance_Type = 'Distance_Type'
     NumberOfClusters = 'NumberOfClusters'
@@ -131,6 +131,11 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             defaultValue=2,minValue=2,maxValue=999))
 
         self.addParameter(QgsProcessingParameterNumber(
+            self.Birch_Diameter,
+            self.tr('Diameter for BIRCH cluster features'),
+            type=1,defaultValue=0.5,minValue=0,maxValue=999))
+
+        self.addParameter(QgsProcessingParameterNumber(
             self.PercentAttrib,self.tr('Percentage contribution of attribute field'),
             defaultValue=0,minValue=0,maxValue=100))
 
@@ -147,6 +152,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         Linkage = self.parameterAsEnum(parameters, self.Linkage, context)
         Distance_Type = self.parameterAsEnum(parameters, self.Distance_Type, context)
         NumberOfClusters = self.parameterAsInt(parameters, self.NumberOfClusters, context)
+        Birch_Diameter = self.parameterAsDouble(parameters, self.Birch_Diameter, context)
         PercentAttrib = self.parameterAsInt(parameters, self.PercentAttrib, context)
         AttribValue = self.parameterAsFields(parameters, self.AttribValue, context)
 
@@ -227,20 +233,27 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 clusters = self.hcluster_slink(progress,points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             else:
-                #progress.pushInfo(str(points.keys()))
-                progress.pushInfo(str((min([p.x() for p in points.values()]),
-                                     max([p.x() for p in points.values()]))))
-                progress.pushInfo(str((min([p.y() for p in points.values()]),
-                                     max([p.y() for p in points.values()]))))
-                birch_instance = birch(points, NumberOfClusters, diameter=0.5, d=d, \
-                                       pz=PercentAttrib, manhattan=(Distance_Type==1))
+                birch_instance = birch(points, NumberOfClusters, diameter=Birch_Diameter, \
+                                       d=d, pz=PercentAttrib, manhattan=(Distance_Type==1))
                 cf_data = birch_instance.pre_process()
-                progress.pushInfo(str((min([p.x() for p in cf_data.values()]),
-                                     max([p.x() for p in cf_data.values()]))))
-                progress.pushInfo(str((min([p.y() for p in cf_data.values()]),
-                                     max([p.y() for p in cf_data.values()]))))
+
+                crs = vlayer.crs().authid()
+                vl = QgsVectorLayer("Point?crs=" + crs, "cf_data", "memory")
+                features = []
+                for p in cf_data.values():
+                    features.append(QgsFeature())
+                    features[-1].setGeometry(QgsGeometry.fromPointXY(QgsPointXY(p)))
+                vl.startEditing()
+                vl.dataProvider().addFeatures(features)
+                vl.updateExtents()
+                vl.commitChanges()
+                context.temporaryLayerStore().addMapLayer(vl)
+                context.addLayerToLoadOnCompletion(vl.id(), \
+                        QgsProcessingContext.LayerDetails('cf_data',context.project()))
+                        
                 progress.pushInfo(self.tr("Processing hierarchical clustering "+
-                                  "with {} BIRCH cluster features ...".format(len(cf_data))))   
+                                  "with {} BIRCH cluster features ...".format(len(cf_data)))) 
+  
                 if Linkage==1:
                     clusters = self.hcluster(progress,"complete",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
@@ -256,9 +269,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 elif Linkage==5:
                     clusters = self.hcluster(progress,"centroid",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
-                #progress.pushInfo(str(clusters))
+
                 clusters = birch_instance.post_process(clusters)
-                #progress.pushInfo(str(clusters))
+
 
         del points
             
@@ -279,7 +292,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         provider.addAttributes([QgsField("Cluster_ID",QVariant.Int)])
         vlayer.updateFields()
         vlayer.commitChanges()
-        
+
         # write output field in input layer
         fieldList = vlayer.dataProvider().fields()
         icl = fieldList.indexFromName("Cluster_ID")
