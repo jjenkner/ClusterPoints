@@ -1,3 +1,5 @@
+number_sample_points = 250
+
 import random
 
 from math import floor,ceil
@@ -19,7 +21,6 @@ class cf_blob:
         
     def update_centroid(self,point):
 
-        #pass
         self.centroid = QgsPoint(self.centroid.x()+(1/self.size)*(point.x()-self.centroid.x()),
                                   self.centroid.y()+(1/self.size)*(point.y()-self.centroid.y()),
                                   self.centroid.z()+(1/self.size)*(point.z()-self.centroid.z()))
@@ -76,10 +77,11 @@ class cf_blobs:
 
     def derive_cf_radius(self):
     
-        # draw 100 random points to estimate mean distance between individual points
+        # draw <number_sample_points> random points 
+        # to estimate mean distance between individual points
         
-        if len(self.__data)>100:
-            subset = random.sample(list(self.__data.keys()),100)
+        if len(self.__data)>number_sample_points:
+            subset = random.sample(list(self.__data.keys()),number_sample_points)
         else:
             subset = list(self.__data.keys())
         
