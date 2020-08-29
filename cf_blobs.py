@@ -11,7 +11,16 @@ from sys import float_info
 class cf_blob:
 
     def __init__(self, d, pz, manhattan, members, centroid):
-    
+        """!
+        @brief Constructor of single cluster feature (blob).
+        
+        @param[in] d (QgsDistanceArea): Qgs Measurement object.
+        @param[in] pz (uint): Percentage of z-coordinate.
+        @param[in] manhattan (bool): Bool for use of Manhattan distance.
+        @param[in] members (list): List of member keys.
+        @param[in] members (QgsPoint): Qgs Point with initial centroid
+        """
+
         self.d = d
         self.pz = pz
         self.manhattan = manhattan
@@ -60,7 +69,7 @@ class cf_blobs:
         @brief Constructor of simple cluster feature tree.
         
         @param[in] data (list): An input data represented as a list of QGIS points.
-        @param[in] agglomeration percentile (uint): (estimated) distance percentile for radius
+        @param[in] agglomeration_percentile (uint): sample distance percentile for radius
         @param[in] d (QgsDistanceArea): Qgs Measurement object.
         @param[in] pz (uint): Percentage of z-coordinate.
         @param[in] manhattan (bool): Bool for use of Manhattan distance.
@@ -88,14 +97,15 @@ class cf_blobs:
         # average pairwise distances
         
         sample_dist = [0]*int(0.5*(len(subset)*(len(subset)+1)))
-        z_dist = [0]*int(0.5*(len(subset)*(len(subset)+1)))
         
         for i in range(len(subset)-1,0,-1):
             ik = len(subset)-i
             for j in range(i,len(subset)):
                 sample_dist[int(0.5*ik*(ik+1))+j] = \
                        self.getDistance(self.__data[subset[i]],self.__data[subset[j]])
-  
+
+        # sort sample distances
+
         sample_dist.sort()
         
         # retrieve quantile values
@@ -134,9 +144,11 @@ class cf_blobs:
     
         return dict((i,self.blobs[i].centroid) for i in range(len(self.blobs)))
         
-    def return_members(self,indexes):
+    def return_members(self,keys):
     
-        return [p for b in [self.blobs[i].members for i in indexes] for p in b]
+        # return cluster feature members for given list of keys
+    
+        return [p for b in [self.blobs[key].members for key in keys] for p in b]
 
     def getDistance(self, point1, point2):
         '''

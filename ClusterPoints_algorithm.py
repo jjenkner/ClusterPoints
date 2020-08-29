@@ -106,17 +106,16 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
   
         self.addParameter(QgsProcessingParameterNumber(
             self.RandomSeed,
-            self.tr('RandomSeed for initialization of the K-Means algorithm'),
+            self.tr('RandomSeed for initialization'),
             defaultValue=1,minValue=1,maxValue=999))
 
         self.addParameter(QgsProcessingParameterEnum(
             self.Linkage,
             self.tr("Link functions for Hierarchical algorithm"),
-            ['Single (SLINK)','Complete (Lance-Williams, only for small dataset)',
-            'Median (Lance-Williams, only for small dataset)',
-            'Unweighted Average (Lance-Williams, only for small dataset)',
-            'Ward\'s (Lance-Williams, only for small dataset)',
-            'Centroid (Lance-Williams, only for small dataset)'],
+            ['Single (SLINK)','Single (Lance-Williams)',
+            'Complete (Lance-Williams)','Median (Lance-Williams)',
+            'Unweighted Average (Lance-Williams)',
+            'Ward\'s (Lance-Williams)','Centroid (Lance-Williams)'],
             optional=True))
         
         self.addParameter(QgsProcessingParameterEnum(
@@ -131,7 +130,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         self.addParameter(QgsProcessingParameterNumber(
             self.AggregationPercentile,
-            self.tr('Estimated distance percentile for cluster features'),
+            self.tr('Cluster feature distance percentile (only used for Lance-Williams)'),
             defaultValue=5,minValue=0,maxValue=100))
 
         self.addParameter(QgsProcessingParameterNumber(
@@ -220,6 +219,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             if parameters['Linkage'] is not None:
                 progress.pushInfo(self.tr("Linkage not used for K-Means"))
             # K-means clustering
+            progress.pushInfo(self.tr("Processing K-Means clustering "+
+                                      "with {} points ...".format(len(points))))      
             clusters = self.kmeans(progress,points,PercentAttrib,NumberOfClusters,d, \
                                             10*float_info.epsilon,Distance_Type==1)
         else:
@@ -228,7 +229,10 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 raise QgsProcessingException("Linkage must be Single, "+ \
                                              "Complete, Median, Unweighted Average,"+ \
                                              " Ward\'s or Centroid")
-            elif Linkage==0:
+            progress.pushInfo(self.tr("Processing hierarchical clustering "+
+                                      "with {} points ...".format(len(points))))      
+            if Linkage==0:
+            
                 clusters = self.hcluster_slink(progress,points,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
             else:
@@ -238,71 +242,38 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                     cf_blob_data.derive_cf_radius()
                     cf_blob_data.create_blobs()
                     cf_data = cf_blob_data.return_centroids()
-
-                    crs = vlayer.crs().authid()
-                    vl = QgsVectorLayer("Point?crs=" + crs, "cf_data", "memory")
-                    features = []
-                    for p in cf_data.values():
-                        features.append(QgsFeature())
-                        features[-1].setGeometry(QgsGeometry.fromPointXY(QgsPointXY(p)))
-                    vl.startEditing()
-                    vl.dataProvider().addFeatures(features)
-                    vl.updateExtents()
-                    vl.commitChanges()
-                    context.temporaryLayerStore().addMapLayer(vl)
-                    context.addLayerToLoadOnCompletion(vl.id(), \
-                            QgsProcessingContext.LayerDetails('cf_data',context.project()))
+                    if NumberOfClusters>len(cf_data):
+                         raise QgsProcessingException("Too little valid cluster features "+ \
+                                    "available for {} clusters".format(NumberOfClusters))
+                    progress.pushInfo(self.tr("Processing hierarchical clustering "+
+                                      "with {} cluster features ...".format(len(cf_data))))                    
                 else:
-                     cf_data = points   
-                progress.pushInfo(self.tr("Processing hierarchical clustering "+
-                                  "with {} cluster features ...".format(len(cf_data)))) 
-  
+                     cf_data = points
+
                 if Linkage==1:
-                    clusters = self.hcluster(progress,"complete",cf_data,PercentAttrib, \
+                    clusters = self.hcluster(progress,"single",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
                 elif Linkage==2:
-                    clusters = self.hcluster(progress,"median",cf_data,PercentAttrib, \
+                    clusters = self.hcluster(progress,"complete",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
                 elif Linkage==3:
-                    clusters = self.hcluster(progress,"average",cf_data,PercentAttrib, \
+                    clusters = self.hcluster(progress,"median",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
                 elif Linkage==4:
+                    clusters = self.hcluster(progress,"average",cf_data,PercentAttrib, \
+                                             NumberOfClusters,d,Distance_Type==1)
+                elif Linkage==5:
                     clusters = self.hcluster(progress,"wards",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)                     
-                elif Linkage==5:
+                elif Linkage==6:
                     clusters = self.hcluster(progress,"centroid",cf_data,PercentAttrib, \
                                              NumberOfClusters,d,Distance_Type==1)
 
                 if AggregationPercentile>0:
-                    cf_data = [cf_blob_data.return_members([c]) for c in range(cf_blob_data.size)]
                     clusters = [cf_blob_data.return_members(cluster) for cluster in clusters]
                     
         del points
 
-        # assign cluster feature IDs
-        cf_id = {}
-        for idx,cluster in enumerate(cf_data):
-            for key in cluster:
-                cf_id[key] = idx
-        
-        # prepare output field in input layer
-        fieldList = vlayer.dataProvider().fields()
-        vlayer.startEditing()
-        if "CF_ID" in [field.name() for field in fieldList]:
-            icl = fieldList.indexFromName("CF_ID")
-            vlayer.dataProvider().deleteAttributes([icl])
-        provider.addAttributes([QgsField("CF_ID",QVariant.Int)])
-        vlayer.updateFields()
-        vlayer.commitChanges()
-
-        # write output field in input layer
-        fieldList = vlayer.dataProvider().fields()
-        icl = fieldList.indexFromName("CF_ID")
-        vlayer.startEditing()
-        for key in cf_id.keys():
-            vlayer.dataProvider().changeAttributeValues({key:{icl:cf_id[key]}})
-        vlayer.commitChanges()
-  
         # assign cluster IDs
         cluster_id = {}
         for idx,cluster in enumerate(clusters):
