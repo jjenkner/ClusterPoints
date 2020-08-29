@@ -54,7 +54,7 @@ class cf_blob:
 
 class cf_blobs:
     
-    def __init__(self, progress, data, agglomeration_percentile=0,
+    def __init__(self, data, agglomeration_percentile=0,
                  d = None, pz = 0, manhattan = False):
         """!
         @brief Constructor of simple cluster feature tree.
@@ -72,8 +72,8 @@ class cf_blobs:
         self.d = d
         self.pz = pz
         self.manhattan = manhattan
-
-        self.progress = progress
+        
+        self.size = 0
 
     def derive_cf_radius(self):
     
@@ -105,8 +105,6 @@ class cf_blobs:
             self.radius = sample_dist[int(p)]
         else:
             self.radius = 0.5*(sample_dist[floor(p)]+sample_dist[ceil(p)])
-            
-        self.progress.pushInfo(str(self.radius))
         
     def create_blobs(self):
     
@@ -126,8 +124,9 @@ class cf_blobs:
             if dist<self.radius:
                 self.blobs[add_j].add_point(key,self.__data[key])
             else:
-               self.blobs.append(cf_blob(self.d,self.pz,self.manhattan,
+                self.blobs.append(cf_blob(self.d,self.pz,self.manhattan,
                                  [key],self.__data[key]))
+                self.size += 1
 
     def return_centroids(self):
     

@@ -132,7 +132,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.AggregationPercentile,
             self.tr('Estimated distance percentile for cluster features'),
-            defaultValue=0,minValue=0,maxValue=100))
+            defaultValue=5,minValue=0,maxValue=100))
 
         self.addParameter(QgsProcessingParameterNumber(
             self.PercentAttrib,self.tr('Percentage contribution of attribute field'),
@@ -233,7 +233,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                              NumberOfClusters,d,Distance_Type==1)
             else:
                 if AggregationPercentile>0:
-                    cf_blob_data = cf_blobs(progress, points, AggregationPercentile, d=d,
+                    cf_blob_data = cf_blobs(points, AggregationPercentile, d=d,
                                             pz=PercentAttrib, manhattan=(Distance_Type==1))
                     cf_blob_data.derive_cf_radius()
                     cf_blob_data.create_blobs()
@@ -274,10 +274,35 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                              NumberOfClusters,d,Distance_Type==1)
 
                 if AggregationPercentile>0:
+                    cf_data = [cf_blob_data.return_members([c]) for c in range(cf_blob_data.size)]
                     clusters = [cf_blob_data.return_members(cluster) for cluster in clusters]
-
+                    
         del points
-            
+
+        # assign cluster feature IDs
+        cf_id = {}
+        for idx,cluster in enumerate(cf_data):
+            for key in cluster:
+                cf_id[key] = idx
+        
+        # prepare output field in input layer
+        fieldList = vlayer.dataProvider().fields()
+        vlayer.startEditing()
+        if "CF_ID" in [field.name() for field in fieldList]:
+            icl = fieldList.indexFromName("CF_ID")
+            vlayer.dataProvider().deleteAttributes([icl])
+        provider.addAttributes([QgsField("CF_ID",QVariant.Int)])
+        vlayer.updateFields()
+        vlayer.commitChanges()
+
+        # write output field in input layer
+        fieldList = vlayer.dataProvider().fields()
+        icl = fieldList.indexFromName("CF_ID")
+        vlayer.startEditing()
+        for key in cf_id.keys():
+            vlayer.dataProvider().changeAttributeValues({key:{icl:cf_id[key]}})
+        vlayer.commitChanges()
+  
         # assign cluster IDs
         cluster_id = {}
         for idx,cluster in enumerate(clusters):
