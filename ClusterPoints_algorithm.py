@@ -23,7 +23,7 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2020-09-10'
+__date__ = '2020-11-28'
 __copyright__ = '(C) 2020 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
@@ -43,7 +43,8 @@ from qgis.core import (QgsField,QgsPoint,QgsPointXY,QgsDistanceArea,
                        QgsProcessingParameterEnum,QgsProcessingParameterNumber,
                        QgsProcessingParameterField,QgsVectorLayer,QgsFeature,QgsGeometry)
 
-from qgis.core import QgsProcessing,QgsProcessingException,QgsProcessingAlgorithm,QgsTask
+from qgis.core import (QgsProcessing,QgsProcessingException,QgsProcessingAlgorithm,
+                      Qgis,QgsTask,QgsMessageLog)
 
 from math import fsum,sqrt
 from sys import float_info
@@ -51,6 +52,8 @@ from bisect import bisect
 from time import sleep
 
 import random
+
+MESSAGE_CATEGORY = 'ClusterPoints'
 
 
 class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
@@ -256,12 +259,16 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                    "Lance-Williams distance updates", \
                                    links[Linkage],cf_data,PercentAttrib, \
                                    NumberOfClusters,d,Distance_Type==1)
-
+        
         # run potentially expensive clustering in extra task
         QgsApplication.taskManager().addTask(task)
-        progress.pushInfo(str(task.status()))
-        while task.isActive():
+
+        while task.status()<3:
             sleep(1)
+            if progress.isCanceled():
+                progress.pushInfo(self.tr("Execution cancelled by user"))
+                task.cancel()
+                break
 
         if "Lance-Williams" in task.description() and AggregationPercentile>0:
             task.clusters = [cf_blob_data.return_members(cluster) for cluster in task.clusters]
@@ -386,17 +393,35 @@ class ClusterTask(QgsTask):
         self.clusters = []
 
     def cancel(self):
-        self.progress.pushInfo("Cluster task cancelled")
+        QgsMessageLog.logMessage("Cluster task cancelled",
+            MESSAGE_CATEGORY, Qgis.Critical)
         super().cancel()
 
     def run(self):
-        if self.description().startwith("K-Means"):
+        """
+        Execution of task
+        """  
+    
+        QgsMessageLog.logMessage(self.description(),MESSAGE_CATEGORY, Qgis.Info)
+        if self.description().startswith("K-Means"):
             return self.kmeans()
         elif self.description().startswith("Hierarchical"):
             if "SLINK" in self.description():
-                return self.hcluster_single()
+                return self.hcluster_slink()
             else:
                 return self.hcluster()
+
+    def finished(self,result):
+        """
+        Called upon finish of execution
+        """
+        
+        if result:
+             QgsMessageLog.logMessage(self.tr("Successful execution of cluster task"),
+                       MESSAGE_CATEGORY, Qgis.Success)
+        else:
+             QgsMessageLog.logMessage(self.tr("Execution of cluster task failed"),
+                       MESSAGE_CATEGORY, Qgis.Critical)
 
     def init_kmeans_plusplus(self):
         """
@@ -405,7 +430,7 @@ class ClusterTask(QgsTask):
         Referred to as K-means++
         """
         
-        keys = list(points.keys())
+        keys = list(self.points.keys())
         
         # draw first point randomly from dataset with uniform weights
         p = random.choice(keys)
@@ -430,29 +455,30 @@ class ClusterTask(QgsTask):
         cutoff=10*float_info.epsilon
 
         # Create k clusters using the K-means++ initialization method
-        self.progress.pushInfo(self.tr("Initializing clusters with K-means++"))
-        self.clusters = self.init_kmeans_plusplus(self.points, self.pz, self.k, self.d, self.manhattan)
-        self.progress.pushInfo(self.tr("{} clusters successfully initialized".format(k)))
+        QgsMessageLog.logMessage(self.tr(
+            "Initializing clusters with K-means++"),
+            MESSAGE_CATEGORY, Qgis.Info)
+        clusters = self.init_kmeans_plusplus()
+        QgsMessageLog.logMessage(self.tr(
+            "{} clusters successfully initialized".format(self.k)),
+            MESSAGE_CATEGORY, Qgis.Info)
     
         # Loop through the dataset until the clusters stabilize
         loopCounter = 0
         while True:
-        
-            if self.isCanceled():
-                return False
-        
+
             # Create a list of lists to hold the points in each cluster
-            setList = [set() for i in range(k)]
+            setList = [set() for i in range(self.k)]
         
             # Start counting loops
             loopCounter += 1
-            self.progress.setProgress(min(loopCounter,90))
+            #self.progress.setProgress(min(loopCounter,90))
             # For every point in the dataset ...
             for p in list(self.points.keys()):
                 # Get the distance between that point and the all the cluster centroids
                 smallest_distance = float_info.max
         
-                for i in range(k):
+                for i in range(self.k):
                     distance = clusters[i].distance2center(self.points[p])
                     if distance < smallest_distance:
                         smallest_distance = distance
@@ -466,10 +492,12 @@ class ClusterTask(QgsTask):
                 # Calculate new centroid coordinates
                 numPoints = len(setList[i])
                 if numPoints == 0:
-                    raise QgsProcessingException("Algorithm failed after "+ \
-                                                 "{} iterations: Choose a ".format(loopCounter)+ \
-                                                 "different random seed or "+ \
-                                                 "a smaller number of clusters")
+                    QgsMessageLog.logMessage(self.tr("Algorithm failed after "+ \
+                                             "{} iterations: Choose a ".format(loopCounter)+ \
+                                             "different random seed or "+ \
+                                             "a smaller number of clusters"),
+                                             MESSAGE_CATEGORY, Qgis.Critical)
+                    return False
                 centerpoint = QgsGeometry.fromPolyline([self.points[p] \
                                          for p in setList[i]]).centroid().asPoint()
                 centerpoint = QgsPoint(centerpoint)
@@ -481,8 +509,10 @@ class ClusterTask(QgsTask):
 
             # If the centroids have stopped moving much, say we're done!
             if biggest_shift < cutoff:
-                self.progress.setProgress(90)
-                self.progress.pushInfo(self.tr("Converged after {} iterations").format(loopCounter))
+                #self.progress.setProgress(90)
+                QgsMessageLog.logMessage(self.tr(
+                    "Converged after {} iterations").format(loopCounter),
+                    MESSAGE_CATEGORY, Qgis.Info)
                 break
     
         self.clusters = [c.ids for c in clusters]
@@ -504,9 +534,9 @@ class ClusterTask(QgsTask):
             for jk in clust.keys():
                 if jk<ik:
                     distances[(ik,jk)]=clust[ik].getDistance(self.points[clust[ik].members[0]], \
-                                       points[clust[jk].members[0]])
+                                       self.points[clust[jk].members[0]])
 
-        while currentclustid>=k-numPoints:
+        while currentclustid>=self.k-numPoints:
         
             if self.isCanceled():
                 return []
@@ -610,18 +640,21 @@ class ClusterTask(QgsTask):
 
             else:
 
-                 self.progress.pushInfo(self.tr("Link function invalid/not found"))
+                 QgsMessageLog.logMessage(self.tr(
+                     "Link function invalid/not found"),
+                     MESSAGE_CATEGORY, Qgis.Critical)
                  super().cancel()
-                              
+
             # delete deprecated clusters
             del clust[ik]
             del clust[jk]
             
             # cluster ids that weren't in the original set are negative
-            self.progress.setProgress(int(90*currentclustid/(k-numPoints)))
+            #self.progress.setProgress(int(90*currentclustid/(k-numPoints)))
             currentclustid-=1
 
-        self.progress.pushInfo(self.tr("Cluster tree computed"))
+        QgsMessageLog.logMessage(self.tr("Cluster tree computed"),
+            MESSAGE_CATEGORY, Qgis.Info)
 
         self.clusters = [c.members for c in list(clust.values())]
         return True
@@ -667,10 +700,10 @@ class ClusterTask(QgsTask):
                 else:
                     M[Pi[p]] = min(M[Pi[p]],M[p])
             Pi[:i] = [x if Lambda[x]>Lambda[p] else i for p,x in enumerate(Pi[:i])]
-            progress.setProgress(int(90*i/numPoints))
+            #progress.setProgress(int(90*i/numPoints))
 
         # Identify clusters in pointer representation
-        for clusterIndex in range(1,k):
+        for clusterIndex in range(1,self.k):
             closest = float_info.min
             
             for p in range(numPoints-1):
@@ -688,8 +721,9 @@ class ClusterTask(QgsTask):
         # assign remaining points to the last cluster
         clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
 
-        self.progress.setProgress(90)
-        self.progress.pushInfo(self.tr("Cluster tree computed"))
+        #self.progress.setProgress(90)
+        QgsMessageLog.logMessage(self.tr("Cluster tree computed"),
+            MESSAGE_CATEGORY, Qgis.Info)
 
         self.clusters = clusters
         return True
