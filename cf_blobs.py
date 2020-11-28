@@ -4,85 +4,54 @@ import random
 
 from math import floor,ceil
 
-from qgis.core import QgsPoint,QgsPointXY
+from qgis.core import (QgsPoint,QgsPointXY,Qgis,QgsTask,QgsMessageLog)
 
 from sys import float_info
 
-class cf_blob:
+MESSAGE_CATEGORY = 'ClusterPoints: Preparation'
 
-    def __init__(self, d, pz, manhattan, members, centroid):
-        """!
-        @brief Constructor of single cluster feature (blob).
-        
-        @param[in] d (QgsDistanceArea): Qgs Measurement object.
-        @param[in] pz (uint): Percentage of z-coordinate.
-        @param[in] manhattan (bool): Bool for use of Manhattan distance.
-        @param[in] members (list): List of member keys.
-        @param[in] members (QgsPoint): Qgs Point with initial centroid
-        """
 
-        self.d = d
-        self.pz = pz
-        self.manhattan = manhattan
-        self.members = members
-        self.size = len(members)
-        self.centroid = centroid
-        
-    def update_centroid(self,point):
-
-        self.centroid = QgsPoint(self.centroid.x()+(1/self.size)*(point.x()-self.centroid.x()),
-                                  self.centroid.y()+(1/self.size)*(point.y()-self.centroid.y()),
-                                  self.centroid.z()+(1/self.size)*(point.z()-self.centroid.z()))
-               
-    def add_point(self,index,point):
+class CFTask(QgsTask):
     
-        self.members.append(index)
-        self.size+=1
-        self.update_centroid(point)
-            
-    def distance2center(self, point):
-        '''
-        "2-dimensional Euclidean distance or Manhattan distance to centerpoint
-        plus percentage contribution (pz) of z value.
-        '''
-        if self.manhattan:
-            return (1-0.01*self.pz)* \
-                (self.d.measureLine(QgsPointXY(self.centroid), \
-                QgsPointXY(point.x(),self.centroid.y()))+ \
-                self.d.measureLine(QgsPointXY(self.centroid), \
-                QgsPointXY(self.centroid.x(),point.y()))+ \
-                self.d.measureLine(QgsPointXY(point), \
-                QgsPointXY(point.x(),self.centroid.y()))+ \
-                self.d.measureLine(QgsPointXY(point), \
-                QgsPointXY(self.centroid.x(),point.y())))+ \
-                2*0.01*self.pz*abs(point.z()-self.centroid.z())
-        else:
-            return (1-0.01*self.pz)* \
-                self.d.measureLine(QgsPointXY(self.centroid),QgsPointXY(point))+ \
-                0.01*self.pz*abs(point.z()-self.centroid.z())
-
-class cf_blobs:
-    
-    def __init__(self, data, agglomeration_percentile=0,
+    def __init__(self, description, data, agglomeration_percentile=0,
                  d = None, pz = 0, manhattan = False):
-        """!
-        @brief Constructor of simple cluster feature tree.
-        
-        @param[in] data (list): An input data represented as a list of QGIS points.
-        @param[in] agglomeration_percentile (uint): sample distance percentile for radius
-        @param[in] d (QgsDistanceArea): Qgs Measurement object.
-        @param[in] pz (uint): Percentage of z-coordinate.
-        @param[in] manhattan (bool): Bool for use of Manhattan distance.
-        """
-        
+        super().__init__(description, QgsTask.CanCancel)
         self.__data = data
         self.__agglomeration_percentile = agglomeration_percentile
         
         self.d = d
         self.pz = pz
         self.manhattan = manhattan
-        
         self.size = 0
+
+    def cancel(self):
+        QgsMessageLog.logMessage("Cluster task cancelled",
+            MESSAGE_CATEGORY, Qgis.Critical)
+        super().cancel()
+
+    def run(self):
+        """
+        Execution of task
+        """
+
+        try:
+            self.derive_cf_radius()
+            self.create_blobs()
+            return True
+        except:
+            return False
+
+    def finished(self,result):
+        """
+        Called upon finish of execution
+        """
+        
+        if result:
+             QgsMessageLog.logMessage(self.tr("Successful execution of preparation task"),
+                       MESSAGE_CATEGORY, Qgis.Success)
+        else:
+             QgsMessageLog.logMessage(self.tr("Execution of preparation task failed"),
+                       MESSAGE_CATEGORY, Qgis.Critical)
 
     def derive_cf_radius(self):
     
@@ -169,3 +138,57 @@ class cf_blobs:
             return (1-0.01*self.pz)* \
                 self.d.measureLine(QgsPointXY(point1),QgsPointXY(point2))+ \
                 0.01*self.pz*abs(point1.z()-point2.z())
+
+
+class cf_blob:
+
+    def __init__(self, d, pz, manhattan, members, centroid):
+        """!
+        @brief Constructor of single cluster feature (blob).
+        
+        @param[in] d (QgsDistanceArea): Qgs Measurement object.
+        @param[in] pz (uint): Percentage of z-coordinate.
+        @param[in] manhattan (bool): Bool for use of Manhattan distance.
+        @param[in] members (list): List of member keys.
+        @param[in] members (QgsPoint): Qgs Point with initial centroid
+        """
+
+        self.d = d
+        self.pz = pz
+        self.manhattan = manhattan
+        self.members = members
+        self.size = len(members)
+        self.centroid = centroid
+        
+    def update_centroid(self,point):
+
+        self.centroid = QgsPoint(self.centroid.x()+(1/self.size)*(point.x()-self.centroid.x()),
+                                  self.centroid.y()+(1/self.size)*(point.y()-self.centroid.y()),
+                                  self.centroid.z()+(1/self.size)*(point.z()-self.centroid.z()))
+               
+    def add_point(self,index,point):
+    
+        self.members.append(index)
+        self.size+=1
+        self.update_centroid(point)
+            
+    def distance2center(self, point):
+        '''
+        "2-dimensional Euclidean distance or Manhattan distance to centerpoint
+        plus percentage contribution (pz) of z value.
+        '''
+        if self.manhattan:
+            return (1-0.01*self.pz)* \
+                (self.d.measureLine(QgsPointXY(self.centroid), \
+                QgsPointXY(point.x(),self.centroid.y()))+ \
+                self.d.measureLine(QgsPointXY(self.centroid), \
+                QgsPointXY(self.centroid.x(),point.y()))+ \
+                self.d.measureLine(QgsPointXY(point), \
+                QgsPointXY(point.x(),self.centroid.y()))+ \
+                self.d.measureLine(QgsPointXY(point), \
+                QgsPointXY(self.centroid.x(),point.y())))+ \
+                2*0.01*self.pz*abs(point.z()-self.centroid.z())
+        else:
+            return (1-0.01*self.pz)* \
+                self.d.measureLine(QgsPointXY(self.centroid),QgsPointXY(point))+ \
+                0.01*self.pz*abs(point.z()-self.centroid.z())

@@ -32,7 +32,7 @@ __revision__ = '$Format:%H$'
 
 
 
-from .cf_blobs import cf_blobs
+from .cf_blobs import CFTask
 
 from qgis.core import QgsProcessingAlgorithm,QgsApplication,QgsProcessingProvider
 
@@ -53,7 +53,7 @@ from time import sleep
 
 import random
 
-MESSAGE_CATEGORY = 'ClusterPoints'
+MESSAGE_CATEGORY = 'ClusterPoints: Clustering'
 
 
 class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
@@ -131,7 +131,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterNumber(
             self.AggregationPercentile,
             self.tr('Cluster feature distance percentile (only used for Lance-Williams)'),
-            defaultValue=5,minValue=0,maxValue=100))
+            defaultValue=5,minValue=0,maxValue=99))
 
         self.addParameter(QgsProcessingParameterNumber(
             self.PercentAttrib,self.tr('Percentage contribution of attribute field'),
@@ -177,8 +177,13 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         points = {infeat.id():QgsPoint(infeat.geometry().asPoint()) for \
                   infeat in fit}
 
+        # check on attribute contribution and correct if necessary
+        if PercentAttrib>0 and parameters['AttribValue'] is None:
+            progress.pushInfo(self.tr("Setting percentage attribute contribution to zero"))
+            PercentAttrib = 0
+
         # retrieve optional z values to consider in clustering
-        if PercentAttrib>0 and parameters['AttribValue'] is not None:
+        if PercentAttrib>0:
             id_attr = vlayer.dataProvider().fieldNameIndex(AttribValue[0])
             if id_attr<0:
                 raise QgsProcessingException("Field {} not found in input layer".format(AttribValue[0]))
@@ -204,7 +209,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                     "available for {} clusters".format(NumberOfClusters))
 
         # standardize z values with standard deviation of horizontal distances
-        if PercentAttrib>0 and parameters['AttribValue'] is not None:
+        if PercentAttrib>0:
             if len(set([p.z() for p in points.values()]))==1:
                 raise QgsProcessingException("Field {} must not be constant".format(AttribValue[0])) 
             standard_factor = self.compute_sd_distance([p.x() for p in points.values()], \
@@ -243,14 +248,29 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                                    NumberOfClusters,d,Distance_Type==1)             
             else:
                 if AggregationPercentile>0:
-                    cf_blob_data = cf_blobs(points, AggregationPercentile, d=d,
-                                            pz=PercentAttrib, manhattan=(Distance_Type==1))
-                    cf_blob_data.derive_cf_radius()
-                    cf_blob_data.create_blobs()
-                    cf_data = cf_blob_data.return_centroids()
-                    if NumberOfClusters>len(cf_data):
-                         raise QgsProcessingException("Too little valid cluster features "+ \
-                                    "available for {} clusters".format(NumberOfClusters))
+                    task_add = CFTask("BIRCH-like preprocessing", points,
+                                            AggregationPercentile, d=d,
+                                            pz=PercentAttrib,
+                                            manhattan=(Distance_Type==1))
+                    
+                    # run potentially expensive preparation in extra task
+                    QgsApplication.taskManager().addTask(task_add)
+                    
+                    while task_add.status()<3:
+                        sleep(1)
+                        if progress.isCanceled():
+                            progress.pushInfo(self.tr("Execution canceled by user"))
+                            task_add.cancel()
+                            break
+                    
+                    if progress.isCanceled():
+                        cf_data = []
+                    else:
+                        cf_data = task_add.return_centroids()
+                        if NumberOfClusters>len(cf_data):
+                             raise QgsProcessingException("Too little valid cluster features "+ \
+                                 "available for {} clusters".format(NumberOfClusters))
+
                     progress.pushInfo(self.tr("Processing hierarchical clustering "+
                                       "with {} cluster features ...".format(len(cf_data))))                    
                 else:
@@ -266,12 +286,12 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         while task.status()<3:
             sleep(1)
             if progress.isCanceled():
-                progress.pushInfo(self.tr("Execution cancelled by user"))
+                progress.pushInfo(self.tr("Execution canceled by user"))
                 task.cancel()
                 break
 
         if "Lance-Williams" in task.description() and AggregationPercentile>0:
-            task.clusters = [cf_blob_data.return_members(cluster) for cluster in task.clusters]
+            task.clusters = [task_add.return_members(cluster) for cluster in task.clusters]
                 
         del points
 
@@ -393,14 +413,14 @@ class ClusterTask(QgsTask):
         self.clusters = []
 
     def cancel(self):
-        QgsMessageLog.logMessage("Cluster task cancelled",
+        QgsMessageLog.logMessage("Cluster task canceled",
             MESSAGE_CATEGORY, Qgis.Critical)
         super().cancel()
 
     def run(self):
         """
         Execution of task
-        """  
+        """
     
         QgsMessageLog.logMessage(self.description(),MESSAGE_CATEGORY, Qgis.Info)
         if self.description().startswith("K-Means"):
@@ -417,10 +437,10 @@ class ClusterTask(QgsTask):
         """
         
         if result:
-             QgsMessageLog.logMessage(self.tr("Successful execution of cluster task"),
+             QgsMessageLog.logMessage(self.tr("Successful execution of clustering task"),
                        MESSAGE_CATEGORY, Qgis.Success)
         else:
-             QgsMessageLog.logMessage(self.tr("Execution of cluster task failed"),
+             QgsMessageLog.logMessage(self.tr("Execution of clustering task failed"),
                        MESSAGE_CATEGORY, Qgis.Critical)
 
     def init_kmeans_plusplus(self):
