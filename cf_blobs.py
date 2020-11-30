@@ -25,7 +25,7 @@ class CFTask(QgsTask):
         self.size = 0
 
     def cancel(self):
-        QgsMessageLog.logMessage("Cluster task cancelled",
+        QgsMessageLog.logMessage("Preparation task cancelled",
             MESSAGE_CATEGORY, Qgis.Critical)
         super().cancel()
 
@@ -84,6 +84,8 @@ class CFTask(QgsTask):
             self.radius = sample_dist[int(p)]
         else:
             self.radius = 0.5*(sample_dist[floor(p)]+sample_dist[ceil(p)])
+        QgsMessageLog.logMessage(self.tr("Radius for cluster features: {:.5E}".format(
+                                         self.radius)),MESSAGE_CATEGORY, Qgis.Info)
         
     def create_blobs(self):
     
@@ -106,6 +108,9 @@ class CFTask(QgsTask):
                 self.blobs.append(cf_blob(self.d,self.pz,self.manhattan,
                                  [key],self.__data[key]))
                 self.size += 1
+                
+        QgsMessageLog.logMessage(self.tr("Cluster features fully derived",
+                                         MESSAGE_CATEGORY, Qgis.Info))
 
     def return_centroids(self):
     

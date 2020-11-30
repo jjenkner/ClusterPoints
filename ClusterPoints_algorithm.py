@@ -282,7 +282,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         
         # run potentially expensive clustering in extra task
         QgsApplication.taskManager().addTask(task)
-
+        
         while task.status()<3:
             sleep(1)
             if progress.isCanceled():
@@ -411,6 +411,7 @@ class ClusterTask(QgsTask):
         self.d = d
         self.manhattan = manhattan
         self.clusters = []
+        self.tree_progress = 0
 
     def cancel(self):
         QgsMessageLog.logMessage("Cluster task canceled",
@@ -492,7 +493,7 @@ class ClusterTask(QgsTask):
         
             # Start counting loops
             loopCounter += 1
-            #self.progress.setProgress(min(loopCounter,90))
+
             # For every point in the dataset ...
             for p in list(self.points.keys()):
                 # Get the distance between that point and the all the cluster centroids
@@ -669,11 +670,18 @@ class ClusterTask(QgsTask):
             del clust[ik]
             del clust[jk]
             
+            # display progress only at intervals of 5%
+            tree_progress = int(20*currentclustid/(self.k-numPoints))
+            if tree_progress > self.tree_progress:
+                self.tree_progress = tree_progress
+                QgsMessageLog.logMessage(self.tr("{}% of cluster tree built".format( \
+                                                 5*tree_progress)),MESSAGE_CATEGORY,
+                                                 Qgis.Info)
+
             # cluster ids that weren't in the original set are negative
-            #self.progress.setProgress(int(90*currentclustid/(k-numPoints)))
             currentclustid-=1
 
-        QgsMessageLog.logMessage(self.tr("Cluster tree computed"),
+        QgsMessageLog.logMessage(self.tr("Cluster tree fully computed"),
             MESSAGE_CATEGORY, Qgis.Info)
 
         self.clusters = [c.members for c in list(clust.values())]
@@ -720,7 +728,14 @@ class ClusterTask(QgsTask):
                 else:
                     M[Pi[p]] = min(M[Pi[p]],M[p])
             Pi[:i] = [x if Lambda[x]>Lambda[p] else i for p,x in enumerate(Pi[:i])]
-            #progress.setProgress(int(90*i/numPoints))
+            
+            # display progress only at intervals of 5%
+            tree_progress = int(20*i/numPoints)
+            if tree_progress > self.tree_progress:
+                self.tree_progress = tree_progress
+                QgsMessageLog.logMessage(self.tr("{}% of cluster tree built".format( \
+                                                 5*tree_progress)),MESSAGE_CATEGORY,
+                                                 Qgis.Info)
 
         # Identify clusters in pointer representation
         for clusterIndex in range(1,self.k):
@@ -742,7 +757,7 @@ class ClusterTask(QgsTask):
         clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
 
         #self.progress.setProgress(90)
-        QgsMessageLog.logMessage(self.tr("Cluster tree computed"),
+        QgsMessageLog.logMessage(self.tr("Cluster tree fully computed"),
             MESSAGE_CATEGORY, Qgis.Info)
 
         self.clusters = clusters
