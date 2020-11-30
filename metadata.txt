@@ -6,7 +6,7 @@
 name=ClusterPoints
 qgisMinimumVersion=3.6
 description=Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. In addition to the geographical coordinates, one numerical field can now be incorporated into the clustering as well.
-version=4.7
+version=4.9
 author=Johannes Jenkner
 email=jjenkner@web.de
 
@@ -20,7 +20,7 @@ repository=https://github.com/jjenkner/ClusterPoints
 
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
-changelog=Simple cluster feature preprocessing step (similar to BIRCH) for hierarchical clustering with Lance-Williams (cluster feature distance percentile)
+changelog=Enabling of cancel button to work with this plugin and transfer of most heavy computations to the background.
 
 # Tags are comma separated with spaces allowed
 tags=grouping cluster machine learning points link functions K-means hierarchical birch
