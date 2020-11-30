@@ -108,9 +108,6 @@ class CFTask(QgsTask):
                 self.blobs.append(cf_blob(self.d,self.pz,self.manhattan,
                                  [key],self.__data[key]))
                 self.size += 1
-                
-        QgsMessageLog.logMessage(self.tr("Cluster features fully derived",
-                                         MESSAGE_CATEGORY, Qgis.Info))
 
     def return_centroids(self):
     
