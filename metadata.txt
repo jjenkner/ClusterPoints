@@ -23,7 +23,7 @@ hasProcessingProvider=yes
 changelog=Enabling of cancel button to work with this plugin and transfer of most heavy computations to the background (progress information moved to message logging).
 
 # Tags are comma separated with spaces allowed
-tags=grouping cluster machine learning points link functions K-means hierarchical birch
+tags=grouping, cluster, clustering, machine learning, points, link function, K-means, hierarchical, birch
 
 homepage=http://jjenkner.com/ClusterPoints
 category=Analysis
