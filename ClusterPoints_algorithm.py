@@ -264,7 +264,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                             break
                     
                     if progress.isCanceled():
-                        cf_data = []
+                        cf_data = {}
                     else:
                         cf_data = task_add.return_centroids()
                         if NumberOfClusters>len(cf_data):
@@ -488,6 +488,9 @@ class ClusterTask(QgsTask):
         loopCounter = 0
         while True:
 
+            if self.isCanceled():
+                return False
+
             # Create a list of lists to hold the points in each cluster
             setList = [set() for i in range(self.k)]
         
@@ -545,6 +548,11 @@ class ClusterTask(QgsTask):
         distances={}
         currentclustid=-1
         numPoints=len(self.points)
+        
+        if numPoints==0:
+            QgsMessageLog.logMessage(self.tr("No points provided"),
+                MESSAGE_CATEGORY, Qgis.Critical)
+            return False   
 
         # clusters are initially singletons
         for ik,p in zip(range(numPoints-1, -1, -1), self.points.keys()):
@@ -552,6 +560,8 @@ class ClusterTask(QgsTask):
         
         # compute pairwise distances
         for ik in clust.keys():
+            if self.isCanceled():
+                return False
             for jk in clust.keys():
                 if jk<ik:
                     distances[(ik,jk)]=clust[ik].getDistance(self.points[clust[ik].members[0]], \
@@ -560,7 +570,7 @@ class ClusterTask(QgsTask):
         while currentclustid>=self.k-numPoints:
         
             if self.isCanceled():
-                return []
+                return False
         
             closest = float_info.max
     
@@ -714,7 +724,7 @@ class ClusterTask(QgsTask):
         for i in range(1,numPoints):
         
             if self.isCanceled():
-                return []
+                return False
         
             Pi[i] = i
             Lambda[i] = float_info.max

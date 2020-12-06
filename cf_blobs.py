@@ -34,12 +34,8 @@ class CFTask(QgsTask):
         Execution of task
         """
 
-        try:
-            self.derive_cf_radius()
-            self.create_blobs()
-            return True
-        except:
-            return False
+        self.derive_cf_radius()
+        return self.create_blobs()
 
     def finished(self,result):
         """
@@ -96,6 +92,10 @@ class CFTask(QgsTask):
         self.blobs = []
         
         for key in self.__data.keys():
+        
+            if self.isCanceled():
+                return False
+            
             dist = float_info.max
             for j in range(len(self.blobs)):
                 dist_j = self.blobs[j].distance2center(self.__data[key])
@@ -108,6 +108,8 @@ class CFTask(QgsTask):
                 self.blobs.append(cf_blob(self.d,self.pz,self.manhattan,
                                  [key],self.__data[key]))
                 self.size += 1
+        
+        return True
 
     def return_centroids(self):
     
