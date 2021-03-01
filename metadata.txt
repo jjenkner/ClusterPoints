@@ -5,12 +5,12 @@
 [general]
 name=ClusterPoints
 qgisMinimumVersion=3.6
-description=Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. In addition to the geographical coordinates, one numerical field can now be incorporated into the clustering as well.
-version=4.10
+description=Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. In addition to the geographical coordinates, multiple numerical fields can now be incorporated into the clustering as well.
+version=4.11
 author=Johannes Jenkner
 email=jjenkner@web.de
 
-about=Sometimes it is requisite to determine distinct groups of points on a map which are closest to each other. To automatize this process, Cluster Points allows you to find a predefined number of groups with mutually close points. <br><br>Different cluster algorithms are provided in this comprehensive GIS implementation. The user may choose from the K-Means algorithm, hierarchical clustering with SLINK or hierarchical clustering with the Lance-Williams distance updates together with a cluster feature preprocessing (similar to BIRCH). Also, the user may prescribe one numerical field which can be incorporated into the spatial clustering by a prescribed percentage. This plugin was started during the project phase of a GIS-Analyst training course in Berlin (https://gis-trainer.de).
+about=Sometimes it is requisite to determine distinct groups of points on a map which are closest to each other. To automatize this process, Cluster Points allows you to find a predefined number of groups with mutually close points. <br><br>Different cluster algorithms are provided in this comprehensive GIS implementation. The user may choose from the K-Means algorithm, hierarchical clustering with SLINK or hierarchical clustering with the Lance-Williams distance updates together with a cluster feature preprocessing (similar to BIRCH). Also, the user may prescribe multiple numericals fields which can be incorporated into the spatial clustering by a prescribed percentage. Depending on this percentage, the clustering is rather location-based or attribute-based. This plugin was started during the project phase of a GIS-Analyst training course in Berlin (https://gis-trainer.de).
 
 tracker=https://github.com/jjenkner/ClusterPoints/issues
 repository=https://github.com/jjenkner/ClusterPoints
@@ -20,7 +20,7 @@ repository=https://github.com/jjenkner/ClusterPoints
 
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
-changelog=Bug removal in task cancellation: transfer of most heavy computations to the background (progress information moved to message logging).
+changelog=Possibility to incorporate multiple numerical fields into the clustering instead of just one.
 
 # Tags are comma separated with spaces allowed
 tags=grouping, cluster, clustering, machine learning, points, link function, K-means, hierarchical, birch
@@ -40,7 +40,7 @@ deprecated=False
 # plugin_dependencies=
 
 Category of the plugin: Raster, Vector, Database or Web
-# category=
+# category=Vector
 
 # If the plugin can run on QGIS Server.
 server=False

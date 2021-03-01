@@ -23,8 +23,8 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2020-11-28'
-__copyright__ = '(C) 2020 by Johannes Jenkner'
+__date__ = '2021-03-01'
+__copyright__ = '(C) 2021 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
 
@@ -83,7 +83,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
     NumberOfClusters = 'NumberOfClusters'
     AggregationPercentile = 'AggregationPercentile'
     PercentAttrib = 'PercentAttrib'
-    AttribValue = 'AttribValue'
+    AttribValues = 'AttribValues'
 
     def initAlgorithm(self, config):
         """
@@ -134,12 +134,13 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             defaultValue=5,minValue=0,maxValue=99))
 
         self.addParameter(QgsProcessingParameterNumber(
-            self.PercentAttrib,self.tr('Percentage contribution of attribute field'),
-            defaultValue=0,minValue=0,maxValue=100))
+            self.PercentAttrib,self.tr('Percentage contribution of attribute fields'),
+            defaultValue=50,minValue=0,maxValue=100))
 
         self.addParameter(QgsProcessingParameterField(
-            self.AttribValue,self.tr('Attribute field'),'',
-            self.Points,optional=True))
+            self.AttribValues,self.tr('Attribute fields'),'',
+            self.Points,type=QgsProcessingParameterField.Numeric,
+            allowMultiple=True,optional=True))
 
     def processAlgorithm(self, parameters, context, progress):
 
@@ -152,7 +153,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         NumberOfClusters = self.parameterAsInt(parameters, self.NumberOfClusters, context)
         AggregationPercentile = self.parameterAsInt(parameters, self.AggregationPercentile, context)
         PercentAttrib = self.parameterAsInt(parameters, self.PercentAttrib, context)
-        AttribValue = self.parameterAsFields(parameters, self.AttribValue, context)
+        AttribValues = self.parameterAsFields(parameters, self.AttribValues, context)
 
         links = ["single", "single", "complete", "median", "average", "wards", "centroid"]
 
@@ -174,35 +175,33 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             fit = vlayer.getFeatures()
 
         # initialize points for clustering
-        points = {infeat.id():QgsPoint(infeat.geometry().asPoint()) for \
+        points = {infeat.id():Cluster_point(infeat.geometry().asPoint()) for \
                   infeat in fit}
 
         # check on attribute contribution and correct if necessary
-        if PercentAttrib>0 and parameters['AttribValue'] is None:
+        if PercentAttrib>0 and len(''.join(AttribValues))==0:
             progress.pushInfo(self.tr("Setting percentage attribute contribution to zero"))
             PercentAttrib = 0
 
         # retrieve optional z values to consider in clustering
         if PercentAttrib>0:
-            id_attr = vlayer.dataProvider().fieldNameIndex(AttribValue[0])
-            if id_attr<0:
-                raise QgsProcessingException("Field {} not found in input layer".format(AttribValue[0]))
-            if not vlayer.fields()[id_attr].typeName().startswith('Int') and \
-                  not vlayer.fields()[id_attr].typeName().startswith('Real') and \
-                  vlayer.fields()[id_attr].type()!=QVariant.Double:
-        	    raise QgsProcessingException("Field {} must be numeric".format(AttribValue[0]))
             if SelectedFeaturesOnly:
                 fit = vlayer.getSelectedFeatures()
             else:
                 fit = vlayer.getFeatures()
+            id_attr = []
+            for j in range(len(AttribValues)):
+                id_attr.append(vlayer.dataProvider().fieldNameIndex(AttribValues[j]))
+                if id_attr[-1]<0:
+                    raise QgsProcessingException(
+                              "Field {} not found in input layer".format(AttribValues[j]))
             for infeat in fit:
-                if infeat[id_attr] or infeat[id_attr]==0:
-                    points[infeat.id()].addZValue(infeat[id_attr])
-                else:
-                    del points[infeat.id()]
-        else:
-            for key in points.keys():
-                points[key].addZValue()
+                for i in id_attr:
+                    if infeat[i] or infeat[i]==0:
+                        points[infeat.id()].addAttribute(infeat[i])
+                    else:
+                        del points[infeat.id()]
+                        break
 
         if NumberOfClusters>len(points):
             raise QgsProcessingException("Too little valid points "+ \
@@ -210,16 +209,17 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         # standardize z values with standard deviation of horizontal distances
         if PercentAttrib>0:
-            if len(set([p.z() for p in points.values()]))==1:
-                raise QgsProcessingException("Field {} must not be constant".format(AttribValue[0])) 
-            standard_factor = self.compute_sd_distance([p.x() for p in points.values()], \
-                                                       [p.y() for p in points.values()], \
-                                                       Distance_Type==1)/ \
-                                                       self.__class__.compute_sd( \
-                                                       [p.z() for p in points.values()])
-            zcenter = fsum([p.z() for p in points.values()])/len(points)
+            for j in range(len(AttribValues)):
+                if len(set([p.attributes[j] for p in points.values()]))==1:
+                    raise QgsProcessingException("Field {} must not be constant".format(AttribValues[j])) 
+            standard_factor = self.compute_sd_distance(points,d,Distance_Type==1,False)/ \
+                              self.compute_sd_distance(points,d,Distance_Type==1,True)
+            attr_centers = [] 
+            for j in range(len(AttribValues)):
+                attr_centers.append(fsum([p.attributes[j] for p in points.values()])/len(points))
             for key in points.keys():
-                points[key].setZ((points[key].z()-zcenter)*standard_factor)
+                points[key].replaceAttributes([(points[key].attributes[j]-attr_centers[j]) \
+                                              *standard_factor for j in range(len(AttribValues))])
 
         # define the clustering procedure
         if Cluster_Type==0:
@@ -364,37 +364,26 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
     def createInstance(self):
         return ClusterPointsAlgorithm()
-
-    # Define auxiliary functions
     
-    @staticmethod
-    def compute_sd(x):
+    def compute_sd_distance(self, points, d, manhattan=False, attrib=False):
         """
-        Computes (unbiased) standard deviation of x
-        """
-        xmean = fsum(x)/len(x)
-        sd = 0
-        for i in range(len(x)):
-            sd += (x[i]-xmean)*(x[i]-xmean)
-        sd = sqrt(sd/(len(x)-1))
-        return sd
-    
-    def compute_sd_distance(self, x, y, manhattan=False):
-        """
-        Computes standard deviation of distances
-        for points describes by x and y 
+        Computes standard deviation of distances for points 
         (either Euclidean or Manhattan)
         """
-        xmean = fsum(x)/len(x)
-        ymean = fsum(y)/len(y)
+        centerpoint = QgsGeometry.fromPolyline(points.values()).centroid().asPoint()
+        centerpoint = Cluster_point(centerpoint)
+        for j in range(len(list(points.values())[0].attributes)):
+                    centerpoint.addAttribute(fsum([p.attributes[j] \
+                                         for p in points.values()])/len(points))        
+        cluster = KMCluster(points.keys(),centerpoint,d,0,manhattan)
         sd = []
-        if manhattan:
-            for i in range(len(x)):
-                sd.append(x[i]+y[i]-xmean-ymean)
+        if attrib:
+            for p in points.values():
+                sd.append(cluster.attrDistance2center(p))
         else:
-            for i in range(len(x)):
-                sd.append(sqrt((x[i]-xmean)*(x[i]-xmean)+(y[i]-ymean)*(y[i]-ymean)))
-        return self.__class__.compute_sd(sd)
+            for p in points.values():
+                sd.append(cluster.distance2center(p))
+        return fsum(sd)/len(sd)
 
 
 
@@ -402,11 +391,11 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
 class ClusterTask(QgsTask):
 
-    def __init__(self, description, link, points, pz, k, d, manhattan=False):
+    def __init__(self, description, link, points, pa, k, d, manhattan=False):
         super().__init__(description, QgsTask.CanCancel)
         self.link = link
         self.points = points
-        self.pz = pz
+        self.pa = pa
         self.k = k
         self.d = d
         self.manhattan = manhattan
@@ -455,7 +444,7 @@ class ClusterTask(QgsTask):
         
         # draw first point randomly from dataset with uniform weights
         p = random.choice(keys)
-        inits = [KMCluster(set([p]),self.points[p], self.d, self.pz, self.manhattan)]
+        inits = [KMCluster(set([p]),self.points[p], self.d, self.pa, self.manhattan)]
         
         # loop until k points were found
         while len(inits)<self.k:
@@ -466,7 +455,7 @@ class ClusterTask(QgsTask):
             p = random.uniform(0,sum(weights)-float_info.epsilon)
             p = bisect([sum(weights[:i+1]) for i in range(len(weights))],p)
             p = keys[p]
-            inits.append(KMCluster(set([p]),self.points[p], self.d, self.pz, self.manhattan))
+            inits.append(KMCluster(set([p]),self.points[p], self.d, self.pa, self.manhattan))
             
         return inits
 
@@ -524,8 +513,10 @@ class ClusterTask(QgsTask):
                     return False
                 centerpoint = QgsGeometry.fromPolyline([self.points[p] \
                                          for p in setList[i]]).centroid().asPoint()
-                centerpoint = QgsPoint(centerpoint)
-                centerpoint.addZValue(sum([self.points[p].z() for p in setList[i]])/len(setList[i]))
+                centerpoint = Cluster_point(centerpoint)
+                for j in range(clusters[i].centerpoint.attr_size):
+                    centerpoint.addAttribute(sum([self.points[p].attributes[j] \
+                                         for p in setList[i]])/numPoints)
                 # Calculate how far the centroid moved in this iteration
                 shift = clusters[i].update(setList[i], centerpoint)
                 # Keep track of the largest move from all cluster centroid updates
@@ -556,7 +547,7 @@ class ClusterTask(QgsTask):
 
         # clusters are initially singletons
         for ik,p in zip(range(numPoints-1, -1, -1), self.points.keys()):
-            clust[ik] = Cluster_node(members=[p],d=self.d,pz=self.pz,manhattan=self.manhattan)
+            clust[ik] = Cluster_node(members=[p],d=self.d,pa=self.pa,manhattan=self.manhattan)
         
         # compute pairwise distances
         for ik in clust.keys():
@@ -590,7 +581,7 @@ class ClusterTask(QgsTask):
             
             # create the new cluster
             clust[currentclustid]=Cluster_node(members=clust[ik].members+ \
-                                  clust[jk].members,d=self.d,pz=self.pz)
+                                  clust[jk].members,d=self.d,pa=self.pa)
                                   
             # compute updated distances according to the Lance-Williams algorithm
             
@@ -718,7 +709,7 @@ class ClusterTask(QgsTask):
         # Initialize SLINK algorithm
         Pi[0] = 0
         Lambda[0] = float_info.max
-        cluster_sample=Cluster_node(d=self.d,pz=self.pz,manhattan=self.manhattan)
+        cluster_sample=Cluster_node(d=self.d,pa=self.pa,manhattan=self.manhattan)
         
         # Iterate over vertices (called OTUs)
         for i in range(1,numPoints):
@@ -781,12 +772,12 @@ class KMCluster:
     '''
     Class for k-means clustering
     '''
-    def __init__(self, ids, centerpoint, d, pz=0, manhattan=False):
+    def __init__(self, ids, centerpoint, d, pa=0, manhattan=False):
         '''
         ids - set of integer IDs of the cluster points
         centerpoint - point of centroid
         d - distance calculation reference
-        pz - percentage contribution of the z coordinate
+        pa - percentage contribution of the attribute values
         '''
         
         if len(ids) == 0: raise Exception("Error: Empty cluster")
@@ -801,7 +792,7 @@ class KMCluster:
         self.d = d
         
         # The percentage contribution of the z value
-        self.pz = pz
+        self.pa = pa
         
         # Whether to use the Manhattan distance 
         self.manhattan = manhattan
@@ -819,52 +810,123 @@ class KMCluster:
     
     def distance2center(self, point):
         '''
-        "2-dimensional Euclidean distance or Manhattan distance to centerpoint
-        plus percentage contribution (pz) of z value.
+        2-dimensional Euclidean distance or Manhattan distance to centerpoint
+        plus percentage contribution (pa) of attribute values
         '''
+        dist = 0
         if self.manhattan:
-            return (1-0.01*self.pz)* \
-                (self.d.measureLine(QgsPointXY(self.centerpoint), \
-                QgsPointXY(point.x(),self.centerpoint.y()))+ \
-                self.d.measureLine(QgsPointXY(self.centerpoint), \
-                QgsPointXY(self.centerpoint.x(),point.y()))+ \
-                self.d.measureLine(QgsPointXY(point), \
-                QgsPointXY(point.x(),self.centerpoint.y()))+ \
-                self.d.measureLine(QgsPointXY(point), \
-                QgsPointXY(self.centerpoint.x(),point.y())))+ \
-                2*0.01*self.pz*abs(point.z()-self.centerpoint.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                    (self.d.measureLine(QgsPointXY(self.centerpoint.x(),self.centerpoint.y()), \
+                    QgsPointXY(point.x(),self.centerpoint.y()))+ \
+                    self.d.measureLine(QgsPointXY(self.centerpoint.x(),self.centerpoint.y()), \
+                    QgsPointXY(self.centerpoint.x(),point.y()))+ \
+                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    QgsPointXY(point.x(),self.centerpoint.y()))+ \
+                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    QgsPointXY(self.centerpoint.x(),point.y())))
+            if self.pa > 0:
+                dist += 2*0.01*self.pa*self.attrDistance2center(point)
         else:
-            return (1-0.01*self.pz)* \
-                self.d.measureLine(QgsPointXY(self.centerpoint),QgsPointXY(point))+ \
-                0.01*self.pz*abs(point.z()-self.centerpoint.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                    self.d.measureLine(QgsPointXY(self.centerpoint.x(),self.centerpoint.y()), \
+                    QgsPointXY(point.x(),point.y()))
+            if self.pa > 0:
+                dist += 0.01*self.pa*self.attrDistance2center(point)
+        return dist
                 
+    def attrDistance2center(self, point):
+        '''
+        2-dimensional Euclidean distance or Manhattan distance to centerpoint,
+        only derived from attributes
+        '''
+        attr_size = min(point.attr_size,self.centerpoint.attr_size)
+        if attr_size == 0:
+            return 0
+        dist = 0
+        if self.manhattan:
+            for i in range(attr_size):
+                dist += abs(point.attributes[i]-self.centerpoint.attributes[i])
+        else:
+            for i in range(attr_size):
+                dist += (point.attributes[i]-self.centerpoint.attributes[i])* \
+                        (point.attributes[i]-self.centerpoint.attributes[i])
+            dist = sqrt(dist)
+        return dist            
+
 class Cluster_node:
     '''
     Class for hierarchical clustering
     '''
-    def __init__(self, members=[], d=None, pz=0, manhattan=False):
+    def __init__(self, members=[], d=None, pa=0, manhattan=False):
         self.members = members
         self.size = len(members)
         self.d = d
-        self.pz = pz
+        self.pa = pa
         self.manhattan = manhattan
 
     def getDistance(self, point1, point2):
         '''
         2-dimensional Euclidean distance or Manhattan distance between points 1 and 2
-        plus percentage contribution (pz) of z value.
+        plus percentage contribution (pa) of attribute values
         '''
+        dist = 0
         if self.manhattan:
-            return (1-0.01*self.pz)*(self.d.measureLine(QgsPointXY(point1), \
-                QgsPointXY(point2.x(),point1.y()))+ \
-                self.d.measureLine(QgsPointXY(point1), \
-                QgsPointXY(point1.x(),point2.y()))+ \
-                self.d.measureLine(QgsPointXY(point2), \
-                QgsPointXY(point2.x(),point1.y()))+ \
-                self.d.measureLine(QgsPointXY(point2), \
-                QgsPointXY(point1.x(),point2.y())))+ \
-                2*0.01*self.pz*abs(point1.z()-point2.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                    (self.d.measureLine(QgsPointXY(point1.x(),point1.y()), \
+                    QgsPointXY(point2.x(),point1.y()))+ \
+                    self.d.measureLine(QgsPointXY(point1.x(),point1.y()), \
+                    QgsPointXY(point1.x(),point2.y()))+ \
+                    self.d.measureLine(QgsPointXY(point2.x(),point2.y()), \
+                    QgsPointXY(point2.x(),point1.y()))+ \
+                    self.d.measureLine(QgsPointXY(point2.x(),point2.y()), \
+                    QgsPointXY(point1.x(),point2.y())))
+            if self.pa > 0:
+                dist += 2*0.01*self.pa*self.getAttrDistance(point1,point2)
         else:
-            return (1-0.01*self.pz)* \
-                self.d.measureLine(QgsPointXY(point1),QgsPointXY(point2))+ \
-                0.01*self.pz*abs(point1.z()-point2.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                self.d.measureLine(QgsPointXY(point1.x(),point1.y()), \
+                QgsPointXY(point2.x(),point2.y()))
+            if self.pa > 0:
+                dist += 0.01*self.pa*self.getAttrDistance(point1,point2)
+        return dist
+                
+    def getAttrDistance(self, point1, point2):
+        '''
+        2-dimensional Euclidean distance or Manhattan distance between attributes
+        of points 1 and 2
+        '''
+        attr_size = min(point1.attr_size,point2.attr_size)
+        if attr_size == 0:
+            return 0
+        dist = 0
+        if self.manhattan:
+            for i in range(attr_size):
+                dist += abs(point1.attributes[i]-point2.attributes[i])
+        else:
+            for i in range(attr_size):
+                dist += (point1.attributes[i]-point2.attributes[i])* \
+                        (point1.attributes[i]-point2.attributes[i])
+            dist = sqrt(dist)
+        return dist
+
+class Cluster_point(QgsPoint):
+    '''
+    Class extends QgsPoint with attribute values
+    '''
+    def __init__(self,point):
+        super(Cluster_point, self).__init__(point)
+        self.attr_size = 0
+        self.attributes = []
+    
+    def addAttribute(self,v):
+        self.attr_size += 1
+        self.attributes.append(v)
+        
+    def replaceAttributes(self,v):
+        self.attr_size = len(v)
+        self.attributes = v
+    
