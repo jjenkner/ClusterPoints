@@ -6,7 +6,7 @@
 name=ClusterPoints
 qgisMinimumVersion=3.6
 description=Cluster Points conducts spatial clustering of points based on their mutual distance to each other. The user can select between the K-Means algorithm and (agglomerative) hierarchical clustering with several different link functions. In addition to the geographical coordinates, one numerical field can now be incorporated into the clustering as well.
-version=4.10
+version=4.9
 author=Johannes Jenkner
 email=jjenkner@web.de
 
