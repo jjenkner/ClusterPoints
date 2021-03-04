@@ -6,6 +6,7 @@ from math import floor,ceil
 
 from qgis.core import (QgsPoint,QgsPointXY,Qgis,QgsTask,QgsMessageLog)
 
+from math import sqrt
 from sys import float_info
 
 MESSAGE_CATEGORY = 'ClusterPoints: Preparation'
@@ -14,13 +15,13 @@ MESSAGE_CATEGORY = 'ClusterPoints: Preparation'
 class CFTask(QgsTask):
     
     def __init__(self, description, data, agglomeration_percentile=0,
-                 d = None, pz = 0, manhattan = False):
+                 d = None, pa = 0, manhattan = False):
         super().__init__(description, QgsTask.CanCancel)
         self.__data = data
         self.__agglomeration_percentile = agglomeration_percentile
         
         self.d = d
-        self.pz = pz
+        self.pa = pa
         self.manhattan = manhattan
         self.size = 0
 
@@ -105,7 +106,7 @@ class CFTask(QgsTask):
             if dist<self.radius:
                 self.blobs[add_j].add_point(key,self.__data[key])
             else:
-                self.blobs.append(cf_blob(self.d,self.pz,self.manhattan,
+                self.blobs.append(cf_blob(self.d,self.pa,self.manhattan,
                                  [key],self.__data[key]))
                 self.size += 1
         
@@ -126,39 +127,66 @@ class CFTask(QgsTask):
     def getDistance(self, point1, point2):
         '''
         2-dimensional Euclidean distance or Manhattan distance between points 1 and 2
-        plus percentage contribution (pz) of z value.
+        plus percentage contribution (pa) of attribute values
         '''
+        dist = 0
         if self.manhattan:
-            return (1-0.01*self.pz)*(self.d.measureLine(QgsPointXY(point1), \
-                QgsPointXY(point2.x(),point1.y()))+ \
-                self.d.measureLine(QgsPointXY(point1), \
-                QgsPointXY(point1.x(),point2.y()))+ \
-                self.d.measureLine(QgsPointXY(point2), \
-                QgsPointXY(point2.x(),point1.y()))+ \
-                self.d.measureLine(QgsPointXY(point2), \
-                QgsPointXY(point1.x(),point2.y())))+ \
-                2*0.01*self.pz*abs(point1.z()-point2.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                    (self.d.measureLine(QgsPointXY(point1.x(),point1.y()), \
+                    QgsPointXY(point2.x(),point1.y()))+ \
+                    self.d.measureLine(QgsPointXY(point1.x(),point1.y()), \
+                    QgsPointXY(point1.x(),point2.y()))+ \
+                    self.d.measureLine(QgsPointXY(point2.x(),point2.y()), \
+                    QgsPointXY(point2.x(),point1.y()))+ \
+                    self.d.measureLine(QgsPointXY(point2.x(),point2.y()), \
+                    QgsPointXY(point1.x(),point2.y())))
+            if self.pa > 0:
+                dist += 2*0.01*self.pa*self.getAttrDistance(point1,point2)
         else:
-            return (1-0.01*self.pz)* \
-                self.d.measureLine(QgsPointXY(point1),QgsPointXY(point2))+ \
-                0.01*self.pz*abs(point1.z()-point2.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                self.d.measureLine(QgsPointXY(point1.x(),point1.y()), \
+                QgsPointXY(point2.x(),point2.y()))
+            if self.pa > 0:
+                dist += 0.01*self.pa*self.getAttrDistance(point1,point2)
+        return dist
+                
+    def getAttrDistance(self, point1, point2):
+        '''
+        2-dimensional Euclidean distance or Manhattan distance between attributes
+        of points 1 and 2
+        '''
+        attr_size = min(point1.attr_size,point2.attr_size)
+        if attr_size == 0:
+            return 0
+        dist = 0
+        if self.manhattan:
+            for i in range(attr_size):
+                dist += abs(point1.attributes[i]-point2.attributes[i])
+        else:
+            for i in range(attr_size):
+                dist += (point1.attributes[i]-point2.attributes[i])* \
+                        (point1.attributes[i]-point2.attributes[i])
+            dist = sqrt(dist)
+        return dist
 
 
 class cf_blob:
 
-    def __init__(self, d, pz, manhattan, members, centroid):
+    def __init__(self, d, pa, manhattan, members, centroid):
         """!
         @brief Constructor of single cluster feature (blob).
         
         @param[in] d (QgsDistanceArea): Qgs Measurement object.
-        @param[in] pz (uint): Percentage of z-coordinate.
+        @param[in] pa (uint): Percentage contribution of attribute values.
         @param[in] manhattan (bool): Bool for use of Manhattan distance.
         @param[in] members (list): List of member keys.
         @param[in] members (QgsPoint): Qgs Point with initial centroid
         """
 
         self.d = d
-        self.pz = pz
+        self.pa = pa
         self.manhattan = manhattan
         self.members = members
         self.size = len(members)
@@ -166,33 +194,81 @@ class cf_blob:
         
     def update_centroid(self,point):
 
-        self.centroid = QgsPoint(self.centroid.x()+(1/self.size)*(point.x()-self.centroid.x()),
-                                  self.centroid.y()+(1/self.size)*(point.y()-self.centroid.y()),
-                                  self.centroid.z()+(1/self.size)*(point.z()-self.centroid.z()))
+        centroid = QgsPointXY(self.centroid.x()+(1.0/self.size)*(point.x()-self.centroid.x()), \
+                              self.centroid.y()+(1.0/self.size)*(point.y()-self.centroid.y()))
+        centroid = Cluster_point(centroid)
+        centroid.replaceAttributes([self.centroid.attributes[j]+ \
+                                    (1.0/self.size)*point.attributes[j] for j in \
+                                    range(point.attr_size)])
+        self.centroid = centroid
                
     def add_point(self,index,point):
     
         self.members.append(index)
         self.size+=1
         self.update_centroid(point)
-            
+
     def distance2center(self, point):
         '''
-        "2-dimensional Euclidean distance or Manhattan distance to centerpoint
-        plus percentage contribution (pz) of z value.
+        2-dimensional Euclidean distance or Manhattan distance to centerpoint
+        plus percentage contribution (pa) of attribute values
         '''
+        dist = 0
         if self.manhattan:
-            return (1-0.01*self.pz)* \
-                (self.d.measureLine(QgsPointXY(self.centroid), \
-                QgsPointXY(point.x(),self.centroid.y()))+ \
-                self.d.measureLine(QgsPointXY(self.centroid), \
-                QgsPointXY(self.centroid.x(),point.y()))+ \
-                self.d.measureLine(QgsPointXY(point), \
-                QgsPointXY(point.x(),self.centroid.y()))+ \
-                self.d.measureLine(QgsPointXY(point), \
-                QgsPointXY(self.centroid.x(),point.y())))+ \
-                2*0.01*self.pz*abs(point.z()-self.centroid.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                    (self.d.measureLine(QgsPointXY(self.centroid.x(),self.centroid.y()), \
+                    QgsPointXY(point.x(),self.centroid.y()))+ \
+                    self.d.measureLine(QgsPointXY(self.centroid.x(),self.centroid.y()), \
+                    QgsPointXY(self.centroid.x(),point.y()))+ \
+                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    QgsPointXY(point.x(),self.centroid.y()))+ \
+                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    QgsPointXY(self.centroid.x(),point.y())))
+            if self.pa > 0:
+                dist += 2*0.01*self.pa*self.attrDistance2center(point)
         else:
-            return (1-0.01*self.pz)* \
-                self.d.measureLine(QgsPointXY(self.centroid),QgsPointXY(point))+ \
-                0.01*self.pz*abs(point.z()-self.centroid.z())
+            if self.pa < 100:
+                dist += (1-0.01*self.pa)* \
+                    self.d.measureLine(QgsPointXY(self.centroid.x(),self.centroid.y()), \
+                    QgsPointXY(point.x(),point.y()))
+            if self.pa > 0:
+                dist += 0.01*self.pa*self.attrDistance2center(point)
+        return dist
+                
+    def attrDistance2center(self, point):
+        '''
+        2-dimensional Euclidean distance or Manhattan distance to centerpoint,
+        only derived from attributes
+        '''
+        attr_size = min(point.attr_size,self.centroid.attr_size)
+        if attr_size == 0:
+            return 0
+        dist = 0
+        if self.manhattan:
+            for i in range(attr_size):
+                dist += abs(point.attributes[i]-self.centroid.attributes[i])
+        else:
+            for i in range(attr_size):
+                dist += (point.attributes[i]-self.centroid.attributes[i])* \
+                        (point.attributes[i]-self.centroid.attributes[i])
+            dist = sqrt(dist)
+        return dist
+
+
+class Cluster_point(QgsPoint):
+    '''
+    Class extends QgsPoint with attribute values
+    '''
+    def __init__(self,point):
+        super(Cluster_point, self).__init__(point)
+        self.attr_size = 0
+        self.attributes = []
+    
+    def addAttribute(self,v):
+        self.attr_size += 1
+        self.attributes.append(v)
+        
+    def replaceAttributes(self,v):
+        self.attr_size = len(v)
+        self.attributes = v

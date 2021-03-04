@@ -250,7 +250,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 if AggregationPercentile>0:
                     task_add = CFTask("BIRCH-like preprocessing", points,
                                             AggregationPercentile, d=d,
-                                            pz=PercentAttrib,
+                                            pa=PercentAttrib,
                                             manhattan=(Distance_Type==1))
                     
                     # run potentially expensive preparation in extra task
@@ -372,7 +372,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         """
         centerpoint = QgsGeometry.fromPolyline(points.values()).centroid().asPoint()
         centerpoint = Cluster_point(centerpoint)
-        for j in range(len(list(points.values())[0].attributes)):
+        for j in range(list(points.values())[0].attr_size):
                     centerpoint.addAttribute(fsum([p.attributes[j] \
                                          for p in points.values()])/len(points))        
         cluster = KMCluster(points.keys(),centerpoint,d,0,manhattan)
@@ -853,7 +853,7 @@ class KMCluster:
                 dist += (point.attributes[i]-self.centerpoint.attributes[i])* \
                         (point.attributes[i]-self.centerpoint.attributes[i])
             dist = sqrt(dist)
-        return dist            
+        return dist
 
 class Cluster_node:
     '''
@@ -929,4 +929,3 @@ class Cluster_point(QgsPoint):
     def replaceAttributes(self,v):
         self.attr_size = len(v)
         self.attributes = v
-    
