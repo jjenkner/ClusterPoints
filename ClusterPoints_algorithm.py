@@ -821,9 +821,9 @@ class KMCluster:
                     QgsPointXY(point.x(),self.centerpoint.y()))+ \
                     self.d.measureLine(QgsPointXY(self.centerpoint.x(),self.centerpoint.y()), \
                     QgsPointXY(self.centerpoint.x(),point.y()))+ \
-                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    self.d.measureLine(QgsPointXY(point.x(),point.y()), \
                     QgsPointXY(point.x(),self.centerpoint.y()))+ \
-                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    self.d.measureLine(QgsPointXY(point.x(),point.y()), \
                     QgsPointXY(self.centerpoint.x(),point.y())))
             if self.pa > 0:
                 dist += 2*0.01*self.pa*self.attrDistance2center(point)

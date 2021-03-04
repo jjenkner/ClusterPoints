@@ -2,11 +2,9 @@ number_sample_points = 250
 
 import random
 
-from math import floor,ceil
-
 from qgis.core import (QgsPoint,QgsPointXY,Qgis,QgsTask,QgsMessageLog)
 
-from math import sqrt
+from math import floor,ceil,sqrt
 from sys import float_info
 
 MESSAGE_CATEGORY = 'ClusterPoints: Preparation'
@@ -76,8 +74,8 @@ class CFTask(QgsTask):
         
         # retrieve quantile values
         
-        p = (len(subset)*(len(subset)+1))/200*self.__agglomeration_percentile
-        if p.is_integer:
+        p = (len(subset)*(len(subset)+1))/200.0*self.__agglomeration_percentile
+        if p.is_integer():
             self.radius = sample_dist[int(p)]
         else:
             self.radius = 0.5*(sample_dist[floor(p)]+sample_dist[ceil(p)])
@@ -198,7 +196,8 @@ class cf_blob:
                               self.centroid.y()+(1.0/self.size)*(point.y()-self.centroid.y()))
         centroid = Cluster_point(centroid)
         centroid.replaceAttributes([self.centroid.attributes[j]+ \
-                                    (1.0/self.size)*point.attributes[j] for j in \
+                                    (1.0/self.size)*(point.attributes[j]- \
+                                    self.centroid.attributes[j]) for j in \
                                     range(point.attr_size)])
         self.centroid = centroid
                
@@ -221,9 +220,9 @@ class cf_blob:
                     QgsPointXY(point.x(),self.centroid.y()))+ \
                     self.d.measureLine(QgsPointXY(self.centroid.x(),self.centroid.y()), \
                     QgsPointXY(self.centroid.x(),point.y()))+ \
-                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    self.d.measureLine(QgsPointXY(point.x(),point.y()), \
                     QgsPointXY(point.x(),self.centroid.y()))+ \
-                    self.d.measureLine(QgsPointXY(point.x(),self.point.y()), \
+                    self.d.measureLine(QgsPointXY(point.x(),point.y()), \
                     QgsPointXY(self.centroid.x(),point.y())))
             if self.pa > 0:
                 dist += 2*0.01*self.pa*self.attrDistance2center(point)
