@@ -78,7 +78,7 @@ class CFTask(QgsTask):
         if p.is_integer():
             self.radius = sample_dist[int(p)]
         else:
-            self.radius = 0.5*(sample_dist[floor(p)]+sample_dist[ceil(p)])
+            self.radius = (1-p%1)*sample_dist[floor(p)]+(p%1)*sample_dist[ceil(p)]
         QgsMessageLog.logMessage(self.tr("Radius for cluster features: {:.5E}".format(
                                          self.radius)),MESSAGE_CATEGORY, Qgis.Info)
         
