@@ -32,6 +32,8 @@ __revision__ = '$Format:%H$'
 
 
 
+verbose = False
+
 from .cf_blobs import CFTask
 
 from qgis.core import QgsProcessingAlgorithm,QgsApplication,QgsProcessingProvider
@@ -321,6 +323,30 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             vlayer.dataProvider().changeAttributeValues({key:{icl:cluster_id[key]}})
         vlayer.commitChanges()
 
+        # optionally output cluster feature membership here
+        if verbose and "Lance-Williams" in task.description() and AggregationPercentile>0:
+        
+            cf_id = {}
+            for idx,cf in enumerate([task_add.return_members([j]) for j in cf_data.keys()]):
+                for key in cf:
+                    cf_id[key] = idx
+
+            fieldList = vlayer.dataProvider().fields()
+            vlayer.startEditing()
+            if "CF_ID" in [field.name() for field in fieldList]:
+                icl = fieldList.indexFromName("CF_ID")
+                vlayer.dataProvider().deleteAttributes([icl])
+            provider.addAttributes([QgsField("CF_ID",QVariant.Int)])
+            vlayer.updateFields()
+            vlayer.commitChanges()
+
+            fieldList = vlayer.dataProvider().fields()
+            icl = fieldList.indexFromName("CF_ID")
+            vlayer.startEditing()
+            for key in cluster_id.keys():
+                vlayer.dataProvider().changeAttributeValues({key:{icl:cf_id[key]}})
+            vlayer.commitChanges()
+
         progress.setProgress(100)
         
         return {self.Points:"Cluster_ID"}
@@ -527,7 +553,7 @@ class ClusterTask(QgsTask):
                 #self.progress.setProgress(90)
                 QgsMessageLog.logMessage(self.tr(
                     "Converged after {} iterations").format(loopCounter),
-                    MESSAGE_CATEGORY, Qgis.Info)
+                    MESSAGE_CATEGORY, Qgis.Success)
                 break
     
         self.clusters = [c.ids for c in clusters]
@@ -791,7 +817,7 @@ class KMCluster:
         # Initialize distance computing
         self.d = d
         
-        # The percentage contribution of the z value
+        # The percentage contribution of the attribute values
         self.pa = pa
         
         # Whether to use the Manhattan distance 

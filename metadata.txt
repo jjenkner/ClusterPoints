@@ -20,7 +20,7 @@ repository=https://github.com/jjenkner/ClusterPoints
 
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
-changelog=Possibility to incorporate multiple numerical fields into the clustering instead of just one.
+changelog=Possibility to incorporate multiple numerical fields into the clustering instead of just one. Optimization of cluster feature estimation.
 
 # Tags are comma separated with spaces allowed
 tags=grouping, cluster, clustering, machine learning, points, link function, K-means, hierarchical, birch
