@@ -432,6 +432,7 @@ class ClusterTask(QgsTask):
         self.manhattan = manhattan
         self.clusters = []
         self.tree_progress = 0
+        
         self.result = None
 
     def cancel(self):
