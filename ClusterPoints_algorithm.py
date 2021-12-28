@@ -23,7 +23,7 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2021-03-01'
+__date__ = '2021-12-28'
 __copyright__ = '(C) 2021 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
@@ -161,10 +161,9 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         random.seed(RandomSeed)
 
-        provider = vlayer.dataProvider()
-        if provider.featureCount()<NumberOfClusters:
+        if vlayer.dataProvider().featureCount()<NumberOfClusters:
             raise QgsProcessingException("Error initializing cluster analysis:\nToo little features available")
-        sRs = provider.crs()
+        sRs = vlayer.dataProvider().crs()
 
         d = QgsDistanceArea()
         d.setSourceCrs(sRs, context.transformContext())
@@ -258,12 +257,15 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                     # run potentially expensive preparation in extra task
                     QgsApplication.taskManager().addTask(task_add)
                     
-                    while task_add.status()<3:
+                    while task_add.result is None:
                         sleep(1)
                         if progress.isCanceled():
                             progress.pushInfo(self.tr("Execution canceled by user"))
                             task_add.cancel()
                             break
+                            
+                    # work-around for QGIS bug of task method "run" not finishing 
+                    task_add.finished(task_add.result)
                     
                     if progress.isCanceled():
                         cf_data = {}
@@ -285,12 +287,15 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         # run potentially expensive clustering in extra task
         QgsApplication.taskManager().addTask(task)
         
-        while task.status()<3:
+        while task.result is None:
             sleep(1)
             if progress.isCanceled():
                 progress.pushInfo(self.tr("Execution canceled by user"))
                 task.cancel()
                 break
+
+        # work-around for QGIS bug of task method "run" not finishing 
+        task.finished(task.result)
 
         if "Lance-Williams" in task.description() and AggregationPercentile>0:
             task.clusters = [task_add.return_members(cluster) for cluster in task.clusters]
@@ -311,7 +316,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         if "Cluster_ID" in [field.name() for field in fieldList]:
             icl = fieldList.indexFromName("Cluster_ID")
             vlayer.dataProvider().deleteAttributes([icl])
-        provider.addAttributes([QgsField("Cluster_ID",QVariant.Int)])
+        vlayer.dataProvider().addAttributes([QgsField("Cluster_ID",QVariant.Int)])
         vlayer.updateFields()
         vlayer.commitChanges()
 
@@ -336,7 +341,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             if "CF_ID" in [field.name() for field in fieldList]:
                 icl = fieldList.indexFromName("CF_ID")
                 vlayer.dataProvider().deleteAttributes([icl])
-            provider.addAttributes([QgsField("CF_ID",QVariant.Int)])
+            vlayer.dataProvider().addAttributes([QgsField("CF_ID",QVariant.Int)])
             vlayer.updateFields()
             vlayer.commitChanges()
 
@@ -427,6 +432,7 @@ class ClusterTask(QgsTask):
         self.manhattan = manhattan
         self.clusters = []
         self.tree_progress = 0
+        self.result = None
 
     def cancel(self):
         QgsMessageLog.logMessage("Cluster task canceled",
@@ -440,12 +446,13 @@ class ClusterTask(QgsTask):
     
         QgsMessageLog.logMessage(self.description(),MESSAGE_CATEGORY, Qgis.Info)
         if self.description().startswith("K-Means"):
-            return self.kmeans()
+            self.result = self.kmeans()
         elif self.description().startswith("Hierarchical"):
             if "SLINK" in self.description():
-                return self.hcluster_slink()
+                self.result = self.hcluster_slink()
             else:
-                return self.hcluster()
+                self.result = self.hcluster()
+        return self.result
 
     def finished(self,result):
         """
@@ -817,7 +824,7 @@ class KMCluster:
         # Initialize distance computing
         self.d = d
         
-        # The percentage contribution of the attribute values
+        # The percentage contribution of the z value
         self.pa = pa
         
         # Whether to use the Manhattan distance 

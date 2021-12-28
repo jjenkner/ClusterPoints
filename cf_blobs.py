@@ -23,7 +23,7 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2021-03-01'
+__date__ = '2021-12-28'
 __copyright__ = '(C) 2021 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
@@ -57,6 +57,8 @@ class CFTask(QgsTask):
         self.pa = pa
         self.manhattan = manhattan
         self.size = 0
+        
+        self.result = None
 
     def cancel(self):
         QgsMessageLog.logMessage("Preparation task cancelled",
@@ -69,7 +71,8 @@ class CFTask(QgsTask):
         """
 
         self.derive_cf_radius()
-        return self.create_blobs()
+        self.result = self.create_blobs()
+        return self.result
 
     def finished(self,result):
         """
@@ -164,7 +167,7 @@ class CFTask(QgsTask):
                     continue
             
                 if j in blobs2consider:
-                    # own blob must be re-checked against all others
+                    # own blobs must be re-checked against all others
                     blobs2loop = list(range(len(self.blobs)))
                 else:
                     # own blob must only be re-checked against the altered ones
