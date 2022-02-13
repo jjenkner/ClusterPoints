@@ -53,6 +53,8 @@ from sys import float_info
 from bisect import bisect
 from time import sleep
 
+from numpy import argmax
+
 import random
 
 MESSAGE_CATEGORY = 'ClusterPoints: Clustering'
@@ -81,6 +83,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
     Cluster_Type = 'Cluster_Type'
     RandomSeed = 'RandomSeed'
     Linkage = 'Linkage'
+    Fuzzifier = 'Fuzzifier'
     Distance_Type = 'Distance_Type'
     NumberOfClusters = 'NumberOfClusters'
     AggregationPercentile = 'AggregationPercentile'
@@ -103,8 +106,8 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         self.addParameter(QgsProcessingParameterEnum(
             self.Cluster_Type,
-            self.tr("Cluster algorithm (K-Means or Hierarchical)"),
-            ['K-Means','Hierarchical'],defaultValue='K-Means'))
+            self.tr("Cluster algorithm (K-Means, Fuzzy C-Means or Hierarchical)"),
+            ['K-Means','Fuzzy C-Means','Hierarchical'],defaultValue='K-Means'))
   
         self.addParameter(QgsProcessingParameterNumber(
             self.RandomSeed,
@@ -119,6 +122,12 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             'Unweighted Average (Lance-Williams)',
             'Ward\'s (Lance-Williams)','Centroid (Lance-Williams)'],
             optional=True))
+        
+        self.addParameter(QgsProcessingParameterNumber(
+            self.Fuzzifier,
+            self.tr('Fuzzifier coefficient (m) for Fuzzy C-Means algorithm'),
+            type = QgsProcessingParameterNumber.Double,
+            defaultValue=2.0,minValue=1.0))
         
         self.addParameter(QgsProcessingParameterEnum(
             self.Distance_Type,
@@ -151,6 +160,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         Cluster_Type = self.parameterAsEnum(parameters, self.Cluster_Type, context)
         RandomSeed = self.parameterAsInt(parameters, self.RandomSeed, context)
         Linkage = self.parameterAsEnum(parameters, self.Linkage, context)
+        Fuzzifier = self.parameterAsDouble(parameters, self.Fuzzifier, context)
         Distance_Type = self.parameterAsEnum(parameters, self.Distance_Type, context)
         NumberOfClusters = self.parameterAsInt(parameters, self.NumberOfClusters, context)
         AggregationPercentile = self.parameterAsInt(parameters, self.AggregationPercentile, context)
@@ -233,6 +243,17 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             task = ClusterTask("K-Means clustering", \
                                None,points,PercentAttrib, \
                                NumberOfClusters,d,Distance_Type==1)
+        
+        elif Cluster_Type==1:
+        
+            if parameters['Linkage'] is not None:
+                progress.pushInfo(self.tr("Linkage not used for Fuzzy C-Means"))
+            # Fuzzy C-means clustering
+            progress.pushInfo(self.tr("Processing Fuzzy C-Means clustering "+
+                                      "with {} points ...".format(len(points))))      
+            task = ClusterTask("Fuzzy C-Means clustering", \
+                               None,points,PercentAttrib, \
+                               NumberOfClusters,d,Distance_Type==1,Fuzzifier)
                 
         else:
         
@@ -328,6 +349,25 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             vlayer.dataProvider().changeAttributeValues({key:{icl:cluster_id[key]}})
         vlayer.commitChanges()
 
+        # output cluster weights for Fuzzy C-Means as string
+        if "Fuzzy C-Means" in task.description():
+            if "Cluster_%" in [field.name() for field in fieldList]:
+                icl = fieldList.indexFromName("Cluster_%")
+                vlayer.dataProvider().deleteAttributes([icl])
+            vlayer.dataProvider().addAttributes([QgsField("Cluster_%",QVariant.String)])
+            vlayer.updateFields()
+            vlayer.commitChanges()
+
+            # write output field in input layer
+            fieldList = vlayer.dataProvider().fields()
+            icl = fieldList.indexFromName("Cluster_%")
+            vlayer.startEditing()
+            for key in cluster_id.keys():
+                vlayer.dataProvider().changeAttributeValues({key:{icl: \
+                    str([round(100*task.weights[i][key],1) for i in range(len(task.weights))])}})
+            vlayer.commitChanges()
+            
+
         # optionally output cluster feature membership here
         if verbose and "Lance-Williams" in task.description() and AggregationPercentile>0:
         
@@ -422,7 +462,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
 class ClusterTask(QgsTask):
 
-    def __init__(self, description, link, points, pa, k, d, manhattan=False):
+    def __init__(self, description, link, points, pa, k, d, manhattan=False,fuzzifier=2.0):
         super().__init__(description, QgsTask.CanCancel)
         self.link = link
         self.points = points
@@ -430,6 +470,7 @@ class ClusterTask(QgsTask):
         self.k = k
         self.d = d
         self.manhattan = manhattan
+        self.m = fuzzifier
         self.clusters = []
         self.tree_progress = 0
         
@@ -448,6 +489,8 @@ class ClusterTask(QgsTask):
         QgsMessageLog.logMessage(self.description(),MESSAGE_CATEGORY, Qgis.Info)
         if self.description().startswith("K-Means"):
             self.result = self.kmeans()
+        elif self.description().startswith("Fuzzy C-Means"):
+            self.result = self.fuzzy_cmeans()
         elif self.description().startswith("Hierarchical"):
             if "SLINK" in self.description():
                 self.result = self.hcluster_slink()
@@ -565,6 +608,86 @@ class ClusterTask(QgsTask):
                 break
     
         self.clusters = [c.ids for c in clusters]
+        return True
+
+    def fuzzy_cmeans(self):
+
+        # Set cut-off distance for termination of iterations
+        cutoff=10*float_info.epsilon
+
+        # Create k clusters using the K-means++ initialization method
+        QgsMessageLog.logMessage(self.tr(
+            "Initializing clusters with K-means++"),
+            MESSAGE_CATEGORY, Qgis.Info)
+        clusters = self.init_kmeans_plusplus()
+        QgsMessageLog.logMessage(self.tr(
+            "{} clusters successfully initialized".format(self.k)),
+            MESSAGE_CATEGORY, Qgis.Info)
+    
+        # Loop through the dataset until the clusters stabilize
+        loopCounter = 0
+        while True:
+
+            if self.isCanceled():
+                return False
+
+            # Create a list of lists to hold the points in each cluster
+            weights = [{} for i in range(self.k)]
+        
+            # Start counting loops
+            loopCounter += 1
+
+            # For every point in the dataset ...
+            for p in list(self.points.keys()):
+                # Get the standardized distance between that point and the all the cluster centroids
+                sum_of_weights = 0
+        
+                for i in range(self.k):
+                    distance = clusters[i].distance2center(self.points[p])
+                    distance = distance**(-2.0/(self.m-1.0)) if distance > cutoff else float_info.max
+                    weights[i][p] = distance
+                    sum_of_weights += distance
+                    
+                for i in range(self.k):
+                    weights[i][p] = weights[i][p] / sum_of_weights
+        
+            # Set biggest_shift to zero for this iteration
+            biggest_shift = 0.0
+        
+            for i in range(self.k):
+                # Calculate new centroid coordinates
+                centerpoint = QgsPointXY(sum([self.points[p].x()*weights[i][p] for \
+                                            p in weights[i].keys()])/ \
+                                            sum(weights[i].values()), \
+                                         sum([self.points[p].y()*weights[i][p] for \
+                                            p in weights[i].keys()])/ \
+                                            sum(weights[i].values()))
+                centerpoint = Cluster_point(centerpoint)
+                for j in range(clusters[i].centerpoint.attr_size):
+                    centerpoint.addAttribute(sum([self.points[p].attributes[j]*weights[i][p] \
+                                         for p in weights[i].keys()])/ \
+                                         sum(weights[i].values()))
+                # Calculate how far the centroid moved in this iteration
+                shift = clusters[i].update(weights[i], centerpoint)
+                # Keep track of the largest move from all cluster centroid updates
+                biggest_shift = max(biggest_shift, shift)
+
+            # If the centroids have stopped moving much, say we're done!
+            if biggest_shift < cutoff:
+                #self.progress.setProgress(90)
+                QgsMessageLog.logMessage(self.tr(
+                    "Converged after {} iterations").format(loopCounter),
+                    MESSAGE_CATEGORY, Qgis.Success)
+                break
+        
+        # assign the cluster with the highest weight to each point
+        max_clusters = [[] for i in range(self.k)]
+        for p in self.points.keys():
+            i = argmax([weights[i][p] for i in range(self.k)])
+            max_clusters[i].append(p)
+    
+        self.clusters = max_clusters
+        self.weights = weights
         return True
 
     def hcluster(self):
@@ -804,7 +927,7 @@ class ClusterTask(QgsTask):
 
 class KMCluster:
     '''
-    Class for k-means clustering
+    Class for k-means or fuzzy c-means clustering
     '''
     def __init__(self, ids, centerpoint, d, pa=0, manhattan=False):
         '''
@@ -835,7 +958,7 @@ class KMCluster:
         '''
         Returns the distance between the previous centroid coordinates
         and the new centroid coordinates 
-        and updates the point IDs and the centroid coordinates
+        and updates the point IDs (i.e. point weights) and the centroid coordinates
         '''
         old_centerpoint = self.centerpoint
         self.ids = ids
