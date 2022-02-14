@@ -656,17 +656,18 @@ class ClusterTask(QgsTask):
         
             for i in range(self.k):
                 # Calculate new centroid coordinates
+                sum_weights = sum(weights[i].values())
                 centerpoint = QgsPointXY(sum([self.points[p].x()*weights[i][p] for \
                                             p in weights[i].keys()])/ \
-                                            sum(weights[i].values()), \
+                                            sum_weights, \
                                          sum([self.points[p].y()*weights[i][p] for \
                                             p in weights[i].keys()])/ \
-                                            sum(weights[i].values()))
+                                            sum_weights)
                 centerpoint = Cluster_point(centerpoint)
                 for j in range(clusters[i].centerpoint.attr_size):
                     centerpoint.addAttribute(sum([self.points[p].attributes[j]*weights[i][p] \
                                          for p in weights[i].keys()])/ \
-                                         sum(weights[i].values()))
+                                         sum_weights)
                 # Calculate how far the centroid moved in this iteration
                 shift = clusters[i].update(weights[i], centerpoint)
                 # Keep track of the largest move from all cluster centroid updates
