@@ -123,12 +123,6 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             'Ward\'s (Lance-Williams)','Centroid (Lance-Williams)'],
             optional=True))
         
-        self.addParameter(QgsProcessingParameterNumber(
-            self.Fuzzifier,
-            self.tr('Fuzzifier coefficient (m) for Fuzzy C-Means algorithm'),
-            type = QgsProcessingParameterNumber.Double,
-            defaultValue=2.0,minValue=1.0))
-        
         self.addParameter(QgsProcessingParameterEnum(
             self.Distance_Type,
             self.tr("Distance calculation type"),
@@ -138,6 +132,12 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             self.NumberOfClusters,
             self.tr('User-defined number of clusters'),
             defaultValue=2,minValue=2,maxValue=999))
+
+        self.addParameter(QgsProcessingParameterNumber(
+            self.Fuzzifier,
+            self.tr('Fuzzifier coefficient m (only used for Fuzzy C-Means)'),
+            type = QgsProcessingParameterNumber.Double,
+            defaultValue=2.0,minValue=1.1))
 
         self.addParameter(QgsProcessingParameterNumber(
             self.AggregationPercentile,
@@ -362,12 +362,14 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             fieldList = vlayer.dataProvider().fields()
             icl = fieldList.indexFromName("Cluster_%")
             vlayer.startEditing()
+            fuzzifier_reverse = 1.0/Fuzzifier
             for key in cluster_id.keys():
                 vlayer.dataProvider().changeAttributeValues({key:{icl: \
-                    str([round(100*task.weights[i][key],1) for i in range(len(task.weights))])}})
+                    ",".join(map(str,[round(100* \
+                    task.weights[i][key]**fuzzifier_reverse,2) \
+                    for i in range(len(task.weights))]))}})
             vlayer.commitChanges()
             
-
         # optionally output cluster feature membership here
         if verbose and "Lance-Williams" in task.description() and AggregationPercentile>0:
         
@@ -539,7 +541,7 @@ class ClusterTask(QgsTask):
     def kmeans(self):
 
         # Set cut-off distance for termination of iterations
-        cutoff=10*float_info.epsilon
+        cutoff=1.e6*float_info.epsilon
 
         # Create k clusters using the K-means++ initialization method
         QgsMessageLog.logMessage(self.tr(
@@ -612,8 +614,10 @@ class ClusterTask(QgsTask):
 
     def fuzzy_cmeans(self):
 
+        m_exponent = -2.0/(self.m-1.0)
+
         # Set cut-off distance for termination of iterations
-        cutoff=10*float_info.epsilon
+        cutoff=1.e6*float_info.epsilon
 
         # Create k clusters using the K-means++ initialization method
         QgsMessageLog.logMessage(self.tr(
@@ -639,35 +643,36 @@ class ClusterTask(QgsTask):
 
             # For every point in the dataset ...
             for p in list(self.points.keys()):
-                # Get the standardized distance between that point and the all the cluster centroids
-                sum_of_weights = 0
+                # Get the standardised distance between that point and all the cluster centroids
+                sum_of_weights = 0.0
         
                 for i in range(self.k):
                     distance = clusters[i].distance2center(self.points[p])
-                    distance = distance**(-2.0/(self.m-1.0)) if distance > cutoff else float_info.max
-                    weights[i][p] = distance
-                    sum_of_weights += distance
+                    weights[i][p] = distance**m_exponent if \
+                                        distance > cutoff else cutoff**m_exponent
+                    sum_of_weights += weights[i][p]
                     
                 for i in range(self.k):
-                    weights[i][p] = weights[i][p] / sum_of_weights
+                    weights[i][p] = (weights[i][p]/sum_of_weights)**self.m
+                    # power here for cluster centers / needs to be undone at the end
         
             # Set biggest_shift to zero for this iteration
             biggest_shift = 0.0
         
             for i in range(self.k):
                 # Calculate new centroid coordinates
-                sum_weights = sum(weights[i].values())
+                sum_of_weights = sum(weights[i].values())
                 centerpoint = QgsPointXY(sum([self.points[p].x()*weights[i][p] for \
                                             p in weights[i].keys()])/ \
-                                            sum_weights, \
+                                            sum_of_weights, \
                                          sum([self.points[p].y()*weights[i][p] for \
                                             p in weights[i].keys()])/ \
-                                            sum_weights)
+                                            sum_of_weights)
                 centerpoint = Cluster_point(centerpoint)
                 for j in range(clusters[i].centerpoint.attr_size):
                     centerpoint.addAttribute(sum([self.points[p].attributes[j]*weights[i][p] \
                                          for p in weights[i].keys()])/ \
-                                         sum_weights)
+                                         sum_of_weights)
                 # Calculate how far the centroid moved in this iteration
                 shift = clusters[i].update(weights[i], centerpoint)
                 # Keep track of the largest move from all cluster centroid updates
