@@ -43,10 +43,11 @@ from PyQt5.QtCore import QCoreApplication,QVariant
 from qgis.core import (QgsField,QgsPoint,QgsPointXY,QgsDistanceArea,
                        QgsProcessingParameterVectorLayer,QgsProcessingParameterBoolean,
                        QgsProcessingParameterEnum,QgsProcessingParameterNumber,
-                       QgsProcessingParameterField,QgsVectorLayer,QgsFeature,QgsGeometry)
+                       QgsProcessingParameterField,QgsVectorLayer,QgsFeature,
+                       QgsFeatureRequest,QgsGeometry)
 
 from qgis.core import (QgsProcessing,QgsProcessingException,QgsProcessingAlgorithm,
-                      Qgis,QgsTask,QgsMessageLog)
+                      Qgis,QgsTask,QgsMessageLog,QgsProject)
 
 from math import fsum,sqrt
 from sys import float_info
@@ -179,11 +180,19 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         d.setSourceCrs(sRs, context.transformContext())
         d.setEllipsoid(context.project().ellipsoid())
 
-        # retrieve input features
+        # copy layer
         if SelectedFeaturesOnly:
-            fit = vlayer.getSelectedFeatures()
+            vlayer_new = vlayer.materialize(QgsFeatureRequest().setFilterFids(vlayer.selectedFeatureIds()))
         else:
-            fit = vlayer.getFeatures()
+            vlayer.selectAll()
+            vlayer_new = vlayer.materialize(QgsFeatureRequest().setFilterFids(vlayer.selectedFeatureIds()))
+            vlayer.removeSelection()
+        
+        # retrieve features
+        fit = vlayer_new.getFeatures()
+            
+        # add copied layer to canvas
+        QgsProject.instance().addMapLayer(vlayer_new)
 
         # initialize points for clustering
         points = {infeat.id():Cluster_point(infeat.geometry().asPoint()) for \
@@ -331,44 +340,37 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
 
         progress.pushInfo(self.tr("Writing output field Cluster_ID"))
         
-        # prepare output field in input layer
-        fieldList = vlayer.dataProvider().fields()
-        vlayer.startEditing()
+        # prepare output field in new layer
+        fieldList = vlayer_new.dataProvider().fields()
         if "Cluster_ID" in [field.name() for field in fieldList]:
             icl = fieldList.indexFromName("Cluster_ID")
-            vlayer.dataProvider().deleteAttributes([icl])
-        vlayer.dataProvider().addAttributes([QgsField("Cluster_ID",QVariant.Int)])
-        vlayer.updateFields()
-        vlayer.commitChanges()
+            vlayer_new.dataProvider().deleteAttributes([icl])
+        vlayer_new.dataProvider().addAttributes([QgsField("Cluster_ID",QVariant.Int)])
+        vlayer_new.updateFields()
 
         # write output field in input layer
-        fieldList = vlayer.dataProvider().fields()
+        fieldList = vlayer_new.dataProvider().fields()
         icl = fieldList.indexFromName("Cluster_ID")
-        vlayer.startEditing()
         for key in cluster_id.keys():
-            vlayer.dataProvider().changeAttributeValues({key:{icl:cluster_id[key]}})
-        vlayer.commitChanges()
+            vlayer_new.dataProvider().changeAttributeValues({key:{icl:cluster_id[key]}})
 
         # output cluster weights for Fuzzy C-Means as string
         if "Fuzzy C-Means" in task.description():
             if "Cluster_%" in [field.name() for field in fieldList]:
                 icl = fieldList.indexFromName("Cluster_%")
-                vlayer.dataProvider().deleteAttributes([icl])
-            vlayer.dataProvider().addAttributes([QgsField("Cluster_%",QVariant.String)])
-            vlayer.updateFields()
-            vlayer.commitChanges()
+                vlayer_new.dataProvider().deleteAttributes([icl])
+            vlayer_new.dataProvider().addAttributes([QgsField("Cluster_%",QVariant.String)])
+            vlayer_new.updateFields()
 
             # write output field in input layer
-            fieldList = vlayer.dataProvider().fields()
+            fieldList = vlayer_new.dataProvider().fields()
             icl = fieldList.indexFromName("Cluster_%")
-            vlayer.startEditing()
             fuzzifier_reverse = 1.0/Fuzzifier
             for key in cluster_id.keys():
-                vlayer.dataProvider().changeAttributeValues({key:{icl: \
+                vlayer_new.dataProvider().changeAttributeValues({key:{icl: \
                     ",".join(map(str,[round(100* \
                     task.weights[i][key]**fuzzifier_reverse,2) \
                     for i in range(len(task.weights))]))}})
-            vlayer.commitChanges()
             
         # optionally output cluster feature membership here
         if verbose and "Lance-Williams" in task.description() and AggregationPercentile>0:
@@ -378,21 +380,17 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
                 for key in cf:
                     cf_id[key] = idx
 
-            fieldList = vlayer.dataProvider().fields()
-            vlayer.startEditing()
+            fieldList = vlayer_new.dataProvider().fields()
             if "CF_ID" in [field.name() for field in fieldList]:
                 icl = fieldList.indexFromName("CF_ID")
-                vlayer.dataProvider().deleteAttributes([icl])
-            vlayer.dataProvider().addAttributes([QgsField("CF_ID",QVariant.Int)])
-            vlayer.updateFields()
-            vlayer.commitChanges()
+                vlayer_new.dataProvider().deleteAttributes([icl])
+            vlayer_new.dataProvider().addAttributes([QgsField("CF_ID",QVariant.Int)])
+            vlayer_new.updateFields()
 
-            fieldList = vlayer.dataProvider().fields()
+            fieldList = vlayer_new.dataProvider().fields()
             icl = fieldList.indexFromName("CF_ID")
-            vlayer.startEditing()
             for key in cluster_id.keys():
-                vlayer.dataProvider().changeAttributeValues({key:{icl:cf_id[key]}})
-            vlayer.commitChanges()
+                vlayer_new.dataProvider().changeAttributeValues({key:{icl:cf_id[key]}})
 
         progress.setProgress(100)
         
