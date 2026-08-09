@@ -519,7 +519,7 @@ class ClusterTask(QgsTask):
         keys = list(self.points.keys())
         
         # draw first point randomly from dataset with uniform weights
-        p = random.choice(keys)
+        p = random.choice(keys) # nosec
         inits = [KMCluster(set([p]),self.points[p], self.d, self.pa, self.manhattan)]
         
         # loop until k points were found
@@ -528,7 +528,7 @@ class ClusterTask(QgsTask):
             weights = [min([inits[i].distance2center(self.points[p]) \
                        for i in range(len(inits))]) for p in keys]
             # draw new point randomly with probability weights
-            p = random.uniform(0,sum(weights)-float_info.epsilon)
+            p = random.uniform(0,sum(weights)-float_info.epsilon) # nosec
             p = bisect([sum(weights[:i+1]) for i in range(len(weights))],p)
             p = keys[p]
             inits.append(KMCluster(set([p]),self.points[p], self.d, self.pa, self.manhattan))
