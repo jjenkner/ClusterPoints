@@ -4,9 +4,9 @@
 
 [general]
 name=ClusterPoints
-qgisMinimumVersion=3.32
+qgisMinimumVersion=3.44
 description=Cluster Points conducts clustering of points based on their mutual distance to each other or based on supplemental information from attributes. The user can select between the K-Means or Fuzzy C-Means algorithms and (agglomerative) hierarchical clustering with several different link functions. To find the best possible grouping of points, both geographical coordinates and numerical fields can be incorporated into the algorithm to a varying degree.
-version=6.1
+version=6.2
 author=Johannes Jenkner
 email=jjenkner@web.de
 
@@ -20,14 +20,14 @@ repository=https://github.com/jjenkner/ClusterPoints
 
 hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
-changelog=Copying of input layer to memory layer on canvas implemented. Storing to file deprecated and disabled.
+changelog=Copying of input layer to memory layer on canvas implemented. Storing to file deprecated and disabled. Security issue detected by Bandit Security Analysis resolved. Cluster icon added to tool list. License file added.
 
 # Tags are comma separated with spaces allowed
 tags=grouping, cluster, clustering, machine learning, points, link function, K-means, hierarchical, birch, C-means
 
 homepage=https://jjenkner.com.de/ClusterPoints
 category=Analysis
-icon=icon.png
+icon=cluster.png
 # experimental flag
 experimental=False
 
