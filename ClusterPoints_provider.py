@@ -23,14 +23,16 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2020-03-30'
+__date__ = '2020-08-08'
 __copyright__ = '(C) 2020 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
 
 __revision__ = '$Format:%H$'
 
+import os
 from qgis.core import QgsProcessingProvider
+from qgis.PyQt.QtGui import QIcon
 from .ClusterPoints_algorithm import ClusterPointsAlgorithm
 
 
@@ -79,7 +81,7 @@ class ClusterPointsProvider(QgsProcessingProvider):
         Should return a QIcon which is used for your provider inside
         the Processing toolbox.
         """
-        return QgsProcessingProvider.icon(self)
+        return QIcon(os.path.dirname(__file__) + '/cluster.png')
 
     def longName(self):
         """
