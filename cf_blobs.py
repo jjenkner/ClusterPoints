@@ -92,7 +92,7 @@ class CFTask(QgsTask):
         # to estimate mean distance between individual points
         
         if len(self.__data)>number_sample_points:
-            subset = random.sample(list(self.__data.keys()),number_sample_points)
+            subset = random.sample(list(self.__data.keys()),number_sample_points) # nosec
         else:
             subset = list(self.__data.keys())
         
