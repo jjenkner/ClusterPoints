@@ -23,7 +23,7 @@
 """
 
 __author__ = 'Johannes Jenkner'
-__date__ = '2021-12-28'
+__date__ = '2026-08-08'
 __copyright__ = '(C) 2021 by Johannes Jenkner'
 
 # This will get replaced with a git SHA1 when you do a git archive
@@ -46,8 +46,7 @@ from qgis.core import (QgsField,QgsPoint,QgsPointXY,QgsDistanceArea,
                        QgsProcessingParameterField,QgsVectorLayer,QgsFeature,
                        QgsFeatureRequest,QgsGeometry)
 
-from qgis.core import (QgsProcessing,QgsProcessingException,QgsProcessingAlgorithm,
-                      Qgis,QgsTask,QgsMessageLog,QgsProject)
+from qgis.core import (QgsProcessing,QgsProcessingException,Qgis,QgsTask,QgsMessageLog,QgsProject)
 
 from math import fsum,sqrt
 from sys import float_info
