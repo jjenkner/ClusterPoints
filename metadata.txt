@@ -4,7 +4,7 @@
 
 [general]
 name=ClusterPoints
-qgisMinimumVersion=3.44
+qgisMinimumVersion=3.32
 description=Cluster Points conducts clustering of points based on their mutual distance to each other or based on supplemental information from attributes. The user can select between the K-Means or Fuzzy C-Means algorithms and (agglomerative) hierarchical clustering with several different link functions. To find the best possible grouping of points, both geographical coordinates and numerical fields can be incorporated into the algorithm to a varying degree.
 version=6.2
 author=Johannes Jenkner
