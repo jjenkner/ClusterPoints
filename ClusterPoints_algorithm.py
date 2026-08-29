@@ -117,7 +117,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterEnum(
             self.Linkage,
             self.tr("Link functions for Hierarchical algorithm"),
-            ['Single (SLINK)','Single (Lance-Williams)',
+            ['Single (SLINK)','Complete (CLINK)','Single (Lance-Williams)',
             'Complete (Lance-Williams)','Median (Lance-Williams)',
             'Unweighted Average (Lance-Williams)',
             'Ward\'s (Lance-Williams)','Centroid (Lance-Williams)'],
@@ -167,7 +167,7 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
         PercentAttrib = self.parameterAsInt(parameters, self.PercentAttrib, context)
         AttribValues = self.parameterAsFields(parameters, self.AttribValues, context)
 
-        links = ["single", "single", "complete", "median", "average", "wards", "centroid"]
+        links = ["single", "complete", "single", "complete", "median", "average", "wards", "centroid"]
 
         random.seed(RandomSeed)
 
@@ -275,7 +275,11 @@ class ClusterPointsAlgorithm(QgsProcessingAlgorithm):
             if Linkage==0:
                 task = ClusterTask("Hierarchical clustering using SLINK", \
                                    links[Linkage],points,PercentAttrib, \
-                                   NumberOfClusters,d,Distance_Type==1)             
+                                   NumberOfClusters,d,Distance_Type==1)
+            elif Linkage==1:
+                 task = ClusterTask("Hierarchical clustering using CLINK", \
+                                   links[Linkage],points,PercentAttrib, \
+                                   NumberOfClusters,d,Distance_Type==1)            
             else:
                 if AggregationPercentile>0:
                     task_add = CFTask("BIRCH-like preprocessing", points,
@@ -493,6 +497,8 @@ class ClusterTask(QgsTask):
         elif self.description().startswith("Hierarchical"):
             if "SLINK" in self.description():
                 self.result = self.hcluster_slink()
+        	elif "CLINK" in self.description():
+        	    self.result = self.hcluster_clink()
             else:
                 self.result = self.hcluster()
         return self.result
@@ -924,6 +930,96 @@ class ClusterTask(QgsTask):
         self.clusters = clusters
         return True
 
+    def hcluster_clink(self):
+
+        def findClusterMembers(Pi,keys,ik,clusters):
+            members = []
+            for i in (i for i,jk in enumerate(Pi) if jk==ik):
+                if keys[i] not in [x for y in clusters for x in y]:
+                    members.append(keys[i])
+                members += findClusterMembers(Pi,keys,i,clusters)
+            return members
+
+        numPoints = len(self.points)
+        keys = list(self.points.keys())
+        Pi = [None]*numPoints
+        Lambda = [None]*numPoints
+        M = [None]*numPoints
+        iks = []
+        clusters = []
+        
+        # Initialize SLINK algorithm
+        Pi[0] = 0
+        Lambda[0] = float_info.max
+        cluster_sample=Cluster_node(d=self.d,pa=self.pa,manhattan=self.manhattan)
+        
+        # Iterate over vertices (called OTUs)
+        for i in range(1,numPoints):
+        
+            if self.isCanceled():
+                return False
+        
+            Pi[i] = i
+            Lambda[i] = float_info.max
+            M[:i] = [cluster_sample.getDistance(self.points[keys[p]],self.points[keys[i]]) \
+                     for p in range(i)] 
+                     
+            # Update based on the internal pointers of previous iterations           
+            for p in range(i):
+                if Lambda[p]>=M[p]:
+                    M[Pi[p]] = max(M[Pi[p]],Lambda[p])
+                    M[p] = float_info.max
+                else:
+                    M[Pi[p]] = max(M[Pi[p]], Lambda[p])
+                    
+            # Refine the clusters and adjust pointers for complete linkage
+            for p in range(i):
+                if Lambda[p] >= M[p]:
+                    if M[p] < M[Pi[p]]:
+                        pi_p_old = Pi[p]
+                        Pi[p] = i
+                        M[pi_p_old] = max(M[pi_p_old], Lambda[p])
+                        Lambda[p] = M[p]
+                    else:
+                        Pi[p] = i
+                        Lambda[p] = M[p]
+                        
+            # Final pass to maintain the representation constraints
+            Pi[:i] = [x if Lambda[x]>Lambda[p] else i for p,x in enumerate(Pi[:i])]
+            
+            # display progress only at intervals of 5%
+            tree_progress = int(20*i/numPoints)
+            if tree_progress > self.tree_progress:
+                self.tree_progress = tree_progress
+                QgsMessageLog.logMessage(self.tr("{}% of cluster tree built".format( \
+                                                 5*tree_progress)),MESSAGE_CATEGORY,
+                                                 Qgis.Info)
+
+        # Identify clusters in pointer representation
+        for clusterIndex in range(1,self.k):
+            closest = float_info.min
+            
+            for p in range(numPoints-1):
+                if Lambda[p]>closest:
+                    ik = p
+                    closest = Lambda[p]
+            Lambda[ik] = float_info.min
+            iks.append(ik)
+
+        iks.reverse()
+        
+        for ik in iks:
+            clusters.append([keys[ik]]+findClusterMembers(Pi,keys,ik,clusters))
+            
+        # assign remaining points to the last cluster
+        clusters.append([p for p in keys if p not in [x for y in clusters for x in y]])
+
+        #self.progress.setProgress(90)
+        QgsMessageLog.logMessage(self.tr("Cluster tree fully computed"),
+            MESSAGE_CATEGORY, Qgis.Info)
+
+        self.clusters = clusters
+        return True
 
 
 # Define required cluster classes
